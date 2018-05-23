@@ -3,8 +3,8 @@
 This is a simple game that runs in a web browser and demonstrates the
 use of Swat in a web page.
 
-For now, you must have recent Firefox Nightly, and in about:config you
-must set javascript.options.wasm_gc to `true`.
+For now, you must have a recent Firefox Nightly, and in about:config you
+must set `javascript.options.wasm_gc` to `true`.
 
 Then, run `serve` in the current directory to serve the files, and go
 to http://localhost:8000/snake.html in the browser.
