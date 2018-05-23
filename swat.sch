@@ -377,7 +377,7 @@ For detailed usage instructions see MANUAL.md.
 ;; Translation context.
 
 (define-record-type cx
-  (%make-cx% slots func-id global-id gensym-id vid support name table-index table-elements types strings string-id)
+  (%make-cx% slots func-id global-id gensym-id vid support name table-index table-elements types strings string-id vector-id functions)
   cx?
   (slots          cx.slots          cx.slots-set!)          ; Slots storage (during body expansion)
   (func-id        cx.func-id        cx.func-id-set!)        ; Next function ID
@@ -394,10 +394,12 @@ For detailed usage instructions see MANUAL.md.
                                                             ;   to the type because wasmTextToBinary inserts
                                                             ;   additional types.  We can search the list with assoc.
   (strings        cx.strings        cx.strings-set!)        ; String literals ((string . id) ...)
-  (string-id      cx.string-id      cx.string-id-set!))     ; Next string literal id
+  (string-id      cx.string-id      cx.string-id-set!)      ; Next string literal id
+  (vector-id      cx.vector-id      cx.vector-id-set!)      ; Next vector type id
+  (functions      cx.functions      cx.functions-set!))     ; List of all functions in order encountered, reversed
 
 (define (make-cx name support)
-  (%make-cx% #f 0 0 0 0 support name 0 '() '() '() 0))
+  (%make-cx% #f 0 0 0 0 support name 0 '() '() '() 0 0 '()))
 
 ;; Gensym.
 
@@ -405,6 +407,16 @@ For detailed usage instructions see MANUAL.md.
   (let ((n (cx.gensym-id cx)))
     (cx.gensym-id-set! cx (+ n 1))
     (splice "$" tag "_" n)))
+
+;; Cells for late binding of counters.
+
+(define-record-type indirection
+  (%make-indirection% n)
+  indirection?
+  (n indirection-get indirection-set!))
+
+(define (make-indirection)
+  (%make-indirection% -1))
 
 ;; Modules
 
@@ -469,6 +481,7 @@ For detailed usage instructions see MANUAL.md.
                    (expand-global-phase2 cx env d))))
               body)
     (compute-dispatch-maps cx env)
+    (renumber-functions cx env)
     (emit-class-descriptors cx env)
     (emit-string-literals cx env)
     (values name
@@ -675,20 +688,20 @@ For detailed usage instructions see MANUAL.md.
 (define (format-func fn)
   (func.name fn))
 
-(define (make-func name module export? id rendered-params formals result slots env)
+(define (make-func name module export? rendered-params formals result slots env)
   (let ((defn        #f)
         (table-index #f))
-    (%make-func% name module export? id rendered-params formals result slots env defn table-index #f)))
+    (%make-func% name module export? (make-indirection) rendered-params formals result slots env defn table-index #f)))
 
 (define (func? x)
   (and (basefunc? x) (not (func.specialization x))))
 
-(define (make-virtual name module export? id rendered-params formals result slots env vid)
+(define (make-virtual name module export? rendered-params formals result slots env vid)
   (let ((defn               #f)
         (table-index        #f)
         (uber-discriminator #f)
         (discriminators     #f))
-    (%make-func% name module export? id rendered-params formals result slots env defn table-index
+    (%make-func% name module export? (make-indirection) rendered-params formals result slots env defn table-index
                  (make-virtual-specialization vid uber-discriminator discriminators))))
 
 (define-record-type virtual-specialization
@@ -722,13 +735,15 @@ For detailed usage instructions see MANUAL.md.
 (define (virtual.discriminators-set! x v)
   (virtual-specialization.discriminators-set! (func.specialization x) v))
 
+(define (register-func! cx func)
+  (cx.functions-set! cx (cons func (cx.functions cx))))
+
 ;; formals is ((name type) ...)
 
 (define (define-function! cx env name module export? params formals result-type slots)
-  (let* ((id   (cx.func-id cx))
-         (func (make-func name module export? id params formals result-type slots env)))
-    (cx.func-id-set! cx (+ id 1))
+  (let ((func (make-func name module export? params formals result-type slots env)))
     (define-env-global! env name func)
+    (register-func! cx func)
     func))
 
 (define (assemble-function func body)
@@ -820,6 +835,23 @@ For detailed usage instructions see MANUAL.md.
                            (cons (list name t) formals)
                            (cons `(param ,(render-type t)) params)))))))))))
 
+(define (renumber-functions cx env)
+  (let ((functions (reverse (cx.functions cx)))
+        (id        (cx.func-id cx)))
+    (for-each (lambda (fn)
+                (if (func.module fn)
+                    (begin
+                      (indirection-set! (func.id fn) id)
+                      (set! id (+ id 1)))))
+              functions)
+    (for-each (lambda (fn)
+                (if (not (func.module fn))
+                    (begin
+                      (indirection-set! (func.id fn) id)
+                      (set! id (+ id 1)))))
+              functions)
+    (cx.func-id-set! cx id)))
+
 ;; Virtuals
 
 ;; See above for make-virtual and virtual? and additional accessors
@@ -837,12 +869,11 @@ For detailed usage instructions see MANUAL.md.
            (fail "Name of first argument to virtual must be 'self'" f))
        (if (not (class-type? type))
            (fail "Type of first argument to virtual must be a class" f)))
-     (let* ((id   (cx.func-id cx))
-            (vid  (cx.vid cx))
-            (virt (make-virtual name module export? id params formals result-type slots env vid)))
-       (cx.func-id-set! cx (+ id 1))
+     (let* ((vid  (cx.vid cx))
+            (virt (make-virtual name module export? params formals result-type slots env vid)))
        (cx.vid-set! cx (+ vid 1))
-       (define-env-global! env name virt)))))
+       (define-env-global! env name virt)
+       (register-func! cx virt)))))
 
 (define (expand-virtual-phase2 cx env f)
   (let* ((signature (cadr f))
@@ -974,7 +1005,8 @@ For detailed usage instructions see MANUAL.md.
                 ;;
                 ;; FIXME: not right, we need a true error function here.
                 (if (not (assq uber discs))
-                    (let ((err (make-func 'error #f #f 0 '() '() *void-type* #f #f)))
+                    (let ((err (make-func 'error #f #f '() '() *void-type* #f #f)))
+                      (register-func! cx err)
                       (func.table-index-set! err 0)
                       (set! discs (cons (list uber err) discs))))
 
@@ -1141,36 +1173,39 @@ For detailed usage instructions see MANUAL.md.
 ;; Types
 
 (define-record-type type
-  (make-type name primitive ref-base vector-element class vector)
+  (make-type name primitive ref-base vector-element vector-id class vector)
   type?
   (name           type.name)            ; a symbol: the same as primitive, or one of "ref", "vector", "class"
   (primitive      type.primitive)       ; #f or a symbol naming the primitive type
   (ref-base       type.ref-base)        ; #f, or this is the type (Ref ref-base)
   (vector-element type.vector-element)  ; #f, or this is the type (Vector vector-element)
+  (vector-id      type.vector-id)       ; #f, or the global id of this vector type, set with vector-element
   (class          type.class)           ; #f, or the class object
   (vector         type.vector-of type.vector-of-set!)) ; #f, or the type here is (Vector this)
 
 (define (make-primitive-type name)
-  (make-type name name #f #f #f #f))
+  (make-type name name #f #f #f #f #f))
 
 (define (make-ref-type base)
-  (make-type 'ref #f base #f #f #f))
+  (make-type 'ref #f base #f #f #f #f))
 
 (define (make-vector-type cx env element)
   (let ((probe (type.vector-of element)))
     (if probe
         probe
-        (let ((t (make-type 'vector #f #f element #f #f)))
+        (let* ((id (cx.vector-id cx))
+               (t  (make-type 'vector #f #f element id #f #f)))
+          (cx.vector-id-set! cx (+ id 1))
           (type.vector-of-set! element t)
           (synthesize-vector-ops cx env element)
           t))))
 
 (define (make-class-type cls)
-  (let ((t (make-type 'class #f #f #f cls #f)))
+  (let ((t (make-type 'class #f #f #f #f cls #f)))
     (class.type-set! cls t)
     t))
 
-(define *void-type* (make-type 'void #f #f #f #f #f))
+(define *void-type* (make-type 'void #f #f #f #f #f #f))
 
 (define *i32-type* (make-primitive-type 'i32))
 (define *i64-type* (make-primitive-type 'i64))
@@ -2927,15 +2962,19 @@ function (p) {
   (synthesize-vector-length cx env element-type)
   (synthesize-vector-ref cx env element-type)
   (synthesize-vector-set! cx env element-type)
-  (synthesize-upcast-vector-to-anyref cx env element-type))
+  (synthesize-upcast-vector-to-anyref cx env element-type)
+  (synthesize-anyref-is-vector cx env element-type)
+  (synthesize-downcast-anyref-to-vector cx env element-type))
 
 (define (render-vector-null env element-type)
   `(ref.null anyref))
 
 (define (synthesize-new-vector cx env element-type)
-  (let ((name (splice "_new_vector_" (render-element-type element-type))))
-    (js-lib cx env name `(,*i32-type* ,element-type) (type.vector-of element-type)
-            "function (n,init) { let a=new Array(n); for (let i=0; i < n; i++) a[i]=init; return a; }")))
+  (let ((name (splice "_new_vector_" (render-element-type element-type)))
+        (vt   (type.vector-of element-type)))
+    (js-lib cx env name `(,*i32-type* ,element-type) vt
+            "function (n,init) { let a=new Array(n); for (let i=0; i < n; i++) a[i]=init; a._tag=~a; return a; }"
+            (type.vector-id vt))))
 
 (define (render-new-vector env element-type len init)
   (let ((name (splice "_new_vector_" (render-element-type element-type))))
@@ -2977,13 +3016,31 @@ function (p) {
   (let ((name (splice "_upcast_vector_" (render-element-type element-type) "_to_anyref")))
     `(call ,(func.id (lookup-func env name)) ,expr)))
 
-(define (render-anyref-is-vector env e element-type)
-  ;; FIXME
-  '(i32.const 1))
+(define (synthesize-anyref-is-vector cx env element-type)
+  (let ((name (splice "_anyref_is_vector_" (render-element-type element-type)))
+        (vt   (type.vector-of element-type)))
+    (js-lib cx env name `(,*anyref-type*) *i32-type*
+            "function (p) { return Array.isArray(p) && p._tag===~a }"
+            (type.vector-id vt))))
 
-(define (render-downcast-anyref-to-vector env e element-type)
-  ;; FIXME
-  `(ref.null anyref))
+(define (render-anyref-is-vector env expr element-type)
+  (let ((name (splice "_anyref_is_vector_" (render-element-type element-type))))
+    `(call ,(func.id (lookup-func env name)) ,expr)))
+
+(define (synthesize-downcast-anyref-to-vector cx env element-type)
+  (let ((name (splice "_downcast_anyref_to_vector_" (render-element-type element-type)))
+        (vt   (type.vector-of element-type)))
+    (js-lib cx env name `(,*anyref-type*) vt
+          "
+function (p) {
+  if (!(Array.isArray(p) && p._tag===~a))
+    throw new Error('Failed to narrow to Vector' + p);
+  return p;
+}" (type.vector-id vt))))
+
+(define (render-downcast-anyref-to-vector env expr element-type)
+  (let ((name (splice "_downcast_anyref_to_vector_" (render-element-type element-type))))
+    `(call ,(func.id (lookup-func env name)) ,expr)))
 
 (define (render-element-type element-type)
   (cond ((vector-type? element-type)
@@ -3291,6 +3348,8 @@ putstr(Array.prototype.join.call(new Uint8Array(" module-bytes "), ' '));
              ((if)         (print-if x))
              ((block loop) (print-block x))
              (else         (print-list x))))
+          ((indirection? x)
+           (prq (indirection-get x)))
           (else
            (error "Don't know what this is: " x))))
 

@@ -17,6 +17,9 @@
   (defun+ (make (n i32) -> (Vector i32))
     (new (Vector i32) n 5))
 
+  (defun+ (make2 (n i32) -> (Vector f64))
+    (new (Vector f64) n 1.0))
+
   (defun+ (sum (v (Vector i32)) -> i32)
     (let ((s 0)
 	  (n (vector-length v)))
@@ -42,6 +45,10 @@ Vec.compile().then(function(module) {
   assertEq(ins.sum(v), 35);
   assertEq(ins.nullvec(), null);
   assertEq(ins.isNull(ins.nullvec()), 1);
+  assertEq(ins.anyref_is_v(v), true);
+  assertEq(ins.anyref_as_v(v), v);
+  var w = ins.make2(3);
+  assertEq(ins.anyref_is_v(w), false);
 },
 function(err) { throw err })
 ")
