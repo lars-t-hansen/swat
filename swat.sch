@@ -369,6 +369,7 @@ For detailed usage instructions see MANUAL.md.
   (let ((env (make-env '() (make-globals-cell))))
     (define-keywords! env)
     (define-types! env)
+    (define-constructors! env)
     (define-syntax! env)
     (define-builtins! env)
     env))
@@ -1125,6 +1126,18 @@ For detailed usage instructions see MANUAL.md.
                         number))))
       (values slot (make-undo getter setter slot)))))
 
+;; Type constructors
+
+(define-record-type type-constructor
+  (make-type-constructor name)
+  type-constructor?
+  (name  type-constructor.name))
+
+(define *Vector-constructor* (make-type-constructor 'Vector))
+
+(define (define-constructors! env)
+  (define-env-global! env 'Vector *Vector-constructor*))
+
 ;; Types
 
 (define-record-type type
@@ -1245,11 +1258,15 @@ For detailed usage instructions see MANUAL.md.
            (if (type? probe)
                probe
                (fail "Does not denote a type" t probe))))
-        ((and (list? t) (= (length t) 2) (eq? 'Vector (car t)))
-         ;; FIXME Hacky, should look Vector up in the previous line, but that
-         ;; gets us into denoting type constructors.
-         (let ((base (parse-type cx env (cadr t))))
-           (make-vector-type cx env base)))
+        ((and (list? t) (= (length t) 2) (symbol? (car t)) (lookup env (car t))) =>
+         (lambda (probe)
+           (if (type-constructor? probe)
+               (cond ((eq? probe *Vector-constructor*)
+                      (let ((base (parse-type cx env (cadr t))))
+                        (make-vector-type cx env base)))
+                     (else
+                      (fail "Does not denote a type constructor" t probe)))
+               (fail "Does not denote a type constructor" t probe))))
         (else
          (fail "Invalid type" t))))
 
