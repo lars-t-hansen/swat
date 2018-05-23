@@ -123,6 +123,7 @@ instance of the vector, never a copy of the vector:
 
 ### Virtual functions
 
+TODO.
 
 ## Using the Swat compiler and running Swat programs
 
