@@ -26,8 +26,6 @@
 
 ### Required
 
-* Better pretty-printer
-* Move to separate repo for better issue tracking and visibility
 * More documentation, esp about how to use for web development
 * More test code
 * Less brittle compiler / better error messages by reading phrase-at-a-time so that
@@ -52,7 +50,7 @@
 * Really want something that deals with the DOM
 * maybe port Life / Mandelbrot / PSON from AssemblyScript?  Life / Mandel are
   not obvious because they are very array-oriented, so we need arrays.
-* obviously we can do a self-compiler, but it's a big project.
+* Obviously we can do a self-compiler, but it's a big project and not very interesting
 
 # swat later, or opportunistically
 
