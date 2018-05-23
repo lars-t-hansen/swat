@@ -1,0 +1,8 @@
+;;; -*- mode: scheme -*-
+
+(defmodule binop
+
+  ;; Type mismatch (until we have automatic widening).
+
+  (defun (f (n i32) (m i64) -> i64)
+    (+ n m)))

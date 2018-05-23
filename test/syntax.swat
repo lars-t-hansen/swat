@@ -1,0 +1,284 @@
+;;; -*- mode: scheme; fill-column: 80 -*-
+
+(defmodule Misc
+
+  (defun+ (t_begin (n i32) -> i32)
+    (begin
+      (+ n 1)
+      (+ n 2)
+      (+ n 3)))
+
+  (defun+ (t_if (n i32) -> i32)
+    (if (> n 3)
+	(begin
+	  (+ n 4)
+	  (+ n 8))
+	(begin
+	  (+ n 1))))
+
+  (defun+ (t_cond (n i32) -> i32)
+    (cond ((= n 1) -1)
+	  ((= n 2) -2)
+	  (else -3)))
+  
+  (defun (f (n i32)))
+
+  (defun+ (t_cond2 (n i32))
+    (cond ((= n 1) (f 1))
+	  ((= n 2) (f 2))
+	  ((= n 3))))
+  
+  (defun+ (t_cond3 (n i32))
+    (cond))
+
+  (defun+ (t_cond4 (n i32))
+    (cond (else)))
+
+  (defun+ (t_and0 -> i32)
+    (and))
+  
+  (defun+ (t_and1 (n i32) -> i32)
+    (and (= n 1)))
+  
+  (defun+ (t_and2 (n i32) (m i32) -> i32)
+    (and (= n 1) (= m 1)))
+
+  (defun+ (t_and3 (n i32) (m i32) (o i32) -> i32)
+    (and (= n 1) (= m 1) (= o 1)))
+
+  (defun+ (t_and3v (n i32) (m i32) (o i32) -> i32)
+    (and n m o))
+
+  (defun+ (t_or0 -> i32)
+    (or))
+
+  (defun+ (t_or1 (n i32) -> i32)
+    (or (= n 1)))
+
+  (defun+ (t_or2 (n i32) (m i32) -> i32)
+    (or (= n 1) (= m 1)))
+
+  (defun+ (t_or3 (n i32) (m i32) (o i32) -> i32)
+    (or (= n 1) (= m 1) (= o 1)))
+
+  (defun+ (t_or3v (n i32) (m i32) (o i32) -> i32)
+    (or n m o))
+
+  (defun+ (t_trap (n i32) -> i32)
+    (if (= n 0)
+	n
+	(trap i32)))
+  )
+
+(js "
+Misc.compile().then(function(module) {
+  let i = new WebAssembly.Instance(module, {lib:Misc.lib}).exports;
+
+  assertEq(i.t_begin(5), 8);
+
+  assertEq(i.t_if(8), 16);
+  assertEq(i.t_if(3), 4);
+
+  assertEq(i.t_cond(0), -3);
+  assertEq(i.t_cond(1), -1);
+  assertEq(i.t_cond(2), -2);
+  assertEq(i.t_cond(3), -3);
+
+  assertEq(i.t_and0(), 1);
+
+  assertEq(i.t_and1(0), 0);
+  assertEq(i.t_and1(1), 1);
+  
+  assertEq(i.t_and2(0, 0), 0);
+  assertEq(i.t_and2(1, 0), 0);
+  assertEq(i.t_and2(0, 1), 0);
+  assertEq(i.t_and2(1, 1), 1);
+
+  assertEq(i.t_and3(1, 1, 0), 0);
+  assertEq(i.t_and3(0, 1, 1), 0);
+  assertEq(i.t_and3(1, 1, 1), 1);
+
+  assertEq(i.t_and3v(1, 1, 2), 2);
+  assertEq(i.t_and3v(1, 1, 0), 0);
+
+  assertEq(i.t_or0(), 0);
+
+  assertEq(i.t_or1(0), 0);
+  assertEq(i.t_or1(1), 1);
+
+  assertEq(i.t_or2(0, 0), 0);
+  assertEq(i.t_or2(1, 0), 1);
+  assertEq(i.t_or2(0, 1), 1);
+  assertEq(i.t_or2(1, 1), 1);
+
+  assertEq(i.t_or3(1, 1, 0), 1);
+  assertEq(i.t_or3(0, 1, 1), 1);
+  assertEq(i.t_or3(1, 1, 1), 1);
+  assertEq(i.t_or3(0, 0, 0), 0);
+
+  assertEq(i.t_or3v(0, 0, 0), 0);
+  assertEq(i.t_or3v(0, 2, 0), 2);
+  assertEq(i.t_or3v(0, 3, 2), 3);
+
+  assertEq(i.t_trap(0), 0);
+  let thrown = false; try { i.t_trap(1) } catch (e) { thrown = true }; assertEq(thrown, true);
+},
+function(err) { throw err })
+")
+
+(defmodule Case
+  (defconst g i32 5)
+
+  (defun+ (t_case_1 (n i32) -> i32)
+    (case n
+      ((0) 1)
+      ((1 2 g) 2)
+      ((-1) 4)
+      (else 3)))
+
+  (defun- (getchar -> i32))
+
+  (defun+ (t_case2 (cur i32) -> i32)
+    (loop LEX
+     (case cur
+       ((0)
+	(break LEX -1))
+       ((1)
+	(set! cur (getchar)))
+       ((2)
+	(comment))
+       ((3)
+	(set! cur (getchar))
+	(break LEX 0))
+       ((4)
+	(break LEX (sharp)))
+       (else
+	(cond ((pred? cur)
+	       (break LEX (symbol)))
+	      (else
+	       (badchar cur)))))))
+
+  (defun (comment))
+  (defun (sharp -> i32) 0)
+  (defun (pred? (n i32) -> i32) 0)
+  (defun (symbol -> i32) 0)
+  (defun (badchar (n i32)))
+
+  )
+      
+(js "
+Case.compile().then(function(module) {
+  let i = new WebAssembly.Instance(module, {lib:Case.lib, '':{getchar:() => 0}}).exports;
+  assertEq(i.t_case_1(0), 1);
+  assertEq(i.t_case_1(1), 2);
+  assertEq(i.t_case_1(2), 2);
+  assertEq(i.t_case_1(3), 3);
+  assertEq(i.t_case_1(4), 3);
+  assertEq(i.t_case_1(5), 2);
+  assertEq(i.t_case_1(6), 3);
+  assertEq(i.t_case_1(-1), 4);
+  assertEq(i.t_case_1(-2), 3);
+},
+function(err) { throw err })
+")
+
+(defmodule Let
+
+ (defun (g1 (v i32)) v)
+ (defun (g2 (v i64)) v)
+ (defun (g3 (v f64)) v)
+
+ (defun+ (t1 (n i32))
+   (let ((k 1)
+	 (j 3.14)
+	 (h L.0))
+     (g1 k)
+     (g3 j)
+     (g2 h))
+   (let ((k L.1)
+	 (h 3)
+	 (v 0.0))
+     (g1 h)
+     (g2 k)
+     (g3 v)))
+
+ (defun+ (t2 (n i32) (m i32) -> i32)
+   (let ((n m)
+	 (m n))
+     (+ (* n 1000) m)))
+
+ )
+
+(js "
+Let.compile().then(function(module) {
+  let ins = new WebAssembly.Instance(module, {lib:Let.lib}).exports;
+  assertEq(ins.t1(10), undefined);
+  assertEq(ins.t2(1,2), 2001);
+},
+function(err) { throw err })
+")
+
+(defmodule LetStar
+
+  (defun+ (f (n i32) -> i32)
+    (let* ((n (+ n 1))
+	   (n (+ n 2))
+	   (n (+ n 3)))
+      n)))
+
+(js "
+LetStar.compile().then(function(module) {
+  let ins = new WebAssembly.Instance(module, {lib:LetStar.lib}).exports;
+  assertEq(ins.f(0), 6);
+},
+function(err) { throw err })
+")
+
+;; test inc! and dec! on both locals and globals and fields
+
+(defmodule IncDec
+
+  (defclass Box
+    (v1 i32)
+    (v2 i32))
+
+  (defun+ (test (key i32) -> i32)
+    (let ((b (new Box 0 0)))
+      (inc! (*v1 b))
+      (dec! (*v2 b))
+      (case key
+	((0) (*v1 b))
+	((1) (*v2 b))
+	(else -10)))))
+
+(js "
+IncDec.compile().then(function(module) {
+  let ins = new WebAssembly.Instance(module, {lib:IncDec.lib}).exports;
+  assertEq(ins.test(0), 1)
+  assertEq(ins.test(1), -1)
+},
+function(err) { throw err })
+")
+
+(defmodule Do
+
+  (defvar+ v i32 0)
+  (defvar+ k i32 0)
+
+  (defun+ (test -> i32)
+    (do ((i 0 (+ i 1))
+	 (j 0 (- j 1)))
+	((= i 3) j)
+      (set! v (+ v i))
+      (set! k (+ k j)))))
+
+(js "
+Do.compile().then(function(module) {
+   let ins = new WebAssembly.Instance(module, {lib:Do.lib}).exports;
+   assertEq(ins.test(), -3);
+   assertEq(ins.v.value, 3);
+   assertEq(ins.k.value, -3);
+},
+function(err) { throw err })
+")
+

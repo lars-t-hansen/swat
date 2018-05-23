@@ -1,0 +1,6 @@
+#!/bin/sh
+
+LARCENY=${LARCENY:-"larceny"}
+DIR=$(dirname $0)
+
+${LARCENY} --r7rs --program ${DIR}/binarize.sch.slfasl -- $@ 

@@ -1,0 +1,80 @@
+;;; -*- mode: scheme -*-
+
+(defmodule Classtest
+
+  (defclass Ipso
+    (x f32))
+  
+  (defclass Box (extends Ipso)
+    (value i32)
+    (next Other))
+
+  (defclass Other
+    (next Box))
+
+  (defclass B2
+    (p Ipso))
+  
+  (defun (f (p Ipso) -> i32)
+    (f32->i32 (*x p)))
+
+  (defun (g (p Box) -> Ipso)		; Widening on return
+    p)
+  
+  (defun+ (check_null (p Box) -> i32)
+    (null? p))
+
+  (defun+ (make_null -> Box)
+    (null Box))
+
+  (defun+ (get4 -> i32)
+    (get (new Box F.0.0 33 (null Other))))
+
+  (defun+ (get (p Box) -> i32)
+    (*value p))
+
+  (defun+ (get2 (p Box) -> i32)
+    (+ (f p) (*value p)))		; Widening on argument
+
+  (defun+ (get3 (p Box) -> i32)
+    (+ (f (g p)) (*value p)))		; g widens on return
+
+  (defun+ (set (p Box) (v i32))
+    (set! (*value p) v))
+
+  (defun+ (test (p Ipso) -> i32)
+    (is Box p))
+
+  (defun+ (widen_assign (holder B2) (q Box))
+    (set! (*p holder) q)		; Widening on assignment
+    (let ((r (null Ipso)))
+      (set! r q)))			; ditto
+
+  (defun+ (narrow (p Ipso) -> Box)
+    (as Box p))
+  )
+
+(js "
+Classtest.compile().then(function(module) {
+  var i = new WebAssembly.Instance(module, {lib:Classtest.lib}).exports;
+  var b = Classtest.lib._new_Box(12, 37, null)
+  assertEq(i.get4(), 33);
+  assertEq(i.get(b), 37);
+  assertEq(i.get2(b), 49);
+  assertEq(i.get3(b), 49);
+  b.value = 58;
+  assertEq(i.get(b), 58);
+  assertEq(i.check_null(b), 0);
+  assertEq(i.check_null(null), 1);
+  assertEq(i.make_null(), null);
+  i.set(b, 42);
+  assertEq(i.get(b), 42);
+  assertEq(b.value, 42);
+  assertEq(i.test(b), 1);
+  var ipso = Classtest.lib._new_Ipso(5);
+  assertEq(i.test(ipso), 0);
+  assertEq(i.narrow(b), b);
+  var x=false; try { assertEq(i.narrow(ipso), ipso); } catch (e) { x=true; } assertEq(x, true);
+},
+function(err) { throw err })
+")

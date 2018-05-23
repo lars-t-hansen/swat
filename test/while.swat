@@ -1,0 +1,18 @@
+;;; -*- mode: scheme -*-
+
+(defmodule While
+
+  (defun+ (run (n i32) -> i32)
+    (let ((i 0))
+      (while (> n 0)
+	(set! i (+ i n))
+	(dec! n))
+      i)))
+
+(js "
+While.compile().then(function(module) {
+  let ins = new WebAssembly.Instance(module, {lib: While.lib}).exports;
+  assertEq(ins.run(10), 55);
+},
+function(err) { throw err })
+")

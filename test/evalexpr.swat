@@ -1,0 +1,152 @@
+;;; -*- mode: scheme -*-
+
+(defmodule EvalExpr
+
+  (defclass Expr)
+
+  (defvirtual+ (print (self Expr) -> String)
+    (Unop   printUnop)
+    (Binop  printBinop)
+    (Let    printLet)
+    (Number printNumber)
+    (Id     printId))
+  
+  (defconst+ UnNeg i32 0)
+  (defconst+ UnNot i32 1)
+  
+  (defclass Unop (extends Expr)
+    (op i32)
+    (arg Expr))
+
+  (defun+ (makeUnop (op i32) (arg Expr) -> Unop)
+    (new Unop op arg))
+
+  (defun (printUnop (self Unop) -> String)
+    (string-append "(" (case (*op self)
+			 ((UnNeg) "-")
+			 ((UnNot) "~")
+			 (else "???"))
+		   " " (print (*arg self)) ")"))
+
+  (defconst+ BinAdd i32 0)
+  (defconst+ BinSub i32 1)
+  (defconst+ BinAnd i32 2)
+  (defconst+ BinOr  i32 3)
+  
+  (defclass Binop (extends Expr)
+    (op i32)
+    (arg1 Expr)
+    (arg2 Expr))
+
+  (defun+ (makeBinop (op i32) (arg1 Expr) (arg2 Expr) -> Binop)
+    (new Binop op arg1 arg2))
+
+  (defun (printBinop (self Binop) -> String)
+    (string-append "(" (case (*op self)
+			 ((BinAdd) "+")
+			 ((BinSub) "-")
+			 ((BinAnd) "and")
+			 ((BinOr) "or")
+			 (else "???"))
+		   " " (print (*arg1 self))
+		   " " (print (*arg2 self)) ")"))
+
+  (defclass Let (extends Expr)
+    (name String)
+    (val Expr)
+    (body Expr))
+  
+  (defun+ (makeLet (name String) (val Expr) (body Expr) -> Let)
+    (new Let name val body))
+
+  (defun (printLet (self Let) -> String)
+    (string-append "(let (" (*name self) " " (print (*val self)) ") " (print (*body self)) ")"))
+
+  (defclass Number (extends Expr)
+    (val i32))
+
+  (defun+ (makeNumber (n i32) -> Number)
+    (new Number n))
+
+  ;; A hack, fix later
+  (defun- (i32->string (n i32) -> String))
+
+  (defun (printNumber (self Number) -> String)
+    (i32->string (*val self)))
+
+  (defclass Id (extends Expr)
+    (name String))
+
+  (defun+ (makeId (name String) -> Id)
+    (new Id name))
+
+  (defun (printId (self Id) -> String)
+    (*name self))
+
+  (defvirtual (eval (self Expr) (e Env) -> i32)
+    (Unop   evalUnop)
+    (Binop  evalBinop)
+    (Let    evalLet)
+    (Number evalNumber)
+    (Id     evalId))
+
+  (defclass Env
+    (name String)
+    (val  i32)
+    (next Env))
+
+  (defun (make-env -> Env)
+    (null Env))
+
+  (defun (extend (e Env) (name String) (val i32) -> Env)
+    (new Env name val e))
+
+  (defun (lookup (e Env) (name String) -> Env)
+    (if (or (null? e) (string=? (*name e) name))
+	e
+	(lookup (*next e) name)))
+	    
+  (defun (evalUnop (self Unop) (e Env) -> i32)
+    (let ((v (eval (*arg self) e)))
+      (case (*op self)
+	((UnNeg) (- 0 v))
+	((UnNot) (bitnot v))
+	(else (trap i32)))))
+
+  (defun (evalBinop (self Binop) (e Env) -> i32)
+    (let ((v1 (eval (*arg1 self) e)))
+      (let ((v2 (eval (*arg2 self) e)))
+	(case (*op self)
+	  ((BinAdd) (+ v1 v2))
+	  ((BinSub) (- v1 v2))
+	  ((BinAnd) (bitand v1 v2))
+	  ((BinOr)  (bitor v1 v2))
+	  (else (trap i32))))))
+
+  (defun (evalNumber (self Number) (e Env) -> i32)
+    (*val self))
+
+  (defun (evalId (self Id) (e Env) -> i32)
+    (let ((binding (lookup e (*name self))))
+      (if (null? binding)
+	  (trap i32)
+	  (*val binding))))
+
+  (defun (evalLet (self Let) (e Env) -> i32)
+    (let ((v (eval (*val self) e)))
+      (eval (*body self) (extend e (*name self) v))))
+
+  (defun+ (evalExpr (expr Expr) -> i32)
+    (eval expr (make-env)))
+
+)
+
+(js "
+EvalExpr.compile().then(function(module) {
+  let i = new WebAssembly.Instance( module, { lib:EvalExpr.lib, '':{'i32->string': (n) => ''+n}}).exports;
+  var e = i.makeBinop(i.BinAdd, i.makeNumber(3), i.makeNumber(4));
+  assertEq(i.evalExpr(e), 7);
+  assertEq(i.print(e) + '', '(+ 3 4)');
+},
+function(err) { throw err })
+")
