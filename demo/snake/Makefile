@@ -17,7 +17,7 @@ snake.js snake.metawasm.js: snake.swat
 	$(SWAT) --js+wasm snake.swat
 
 clean:
-	rm -f snake.js snake.metawasm.js snake.wasm *~
+	rm -f snake.metawasm.js *~
 
 %.wasm : %.metawasm.js
 	$(JS) $< > TEMP
