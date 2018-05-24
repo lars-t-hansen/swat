@@ -2877,7 +2877,12 @@ function (x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
 
 (define (synthesize-string-ref cx env)
   (js-lib cx env '_string_ref `(,*string-type* ,*i32-type*) *i32-type*
-          "function (p,n) { return p.charCodeAt(n) }"))
+          "
+function (str,idx) {
+  if ((idx >>> 0) >= str.length)
+    throw new RangeError('Out of range: ' + idx + ' for ' + str.length);
+  return str.charCodeAt(idx);
+}"))
 
 (define (render-string-ref env e0 e1)
   `(call ,(func.id (lookup-func env '_string_ref)) ,e0 ,e1))
@@ -2891,7 +2896,12 @@ function (x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
 
 (define (synthesize-substring cx env)
   (js-lib cx env '_substring `(,*string-type* ,*i32-type* ,*i32-type*) *string-type*
-          "function (p,n,m) { return p.substring(m,n) }"))
+          "
+function (str,start,end) {
+  if ((start >>> 0) >= str.length || (end >>> 0) > str.length)
+    throw new RangeError('Out of range: ' + start + ',' + end + ' for ' + str.length);
+  return str.substring(start,end);
+}"))
 
 (define (render-substring env e0 e1 e2)
   `(call ,(func.id (lookup-func env '_substring)) ,e0 ,e1 ,e2))
@@ -2922,8 +2932,17 @@ function (p,q) {
   `(call ,(func.id (lookup-func env '_vector_to_string)) ,e))
 
 (define (synthesize-string->vector cx env)
-  (js-lib cx env '_string_to_vector `(,*string-type*) (make-vector-type cx env *i32-type*)
-          "function (x) { let a=[]; for(let i=0; i<x.length; i++) a.push(x.charCodeAt(i)); return a }"))
+  (let ((vt (make-vector-type cx env *i32-type*)))
+    (js-lib cx env '_string_to_vector `(,*string-type*) vt
+            "
+function (s) {
+  let len = x.length;
+  let a=new Array(len);
+  for(let i=0; i<len; i++)
+    a[i] = x.charCodeAt(i);
+  a._tag=~a;
+  return a;
+}" (type.vector-id vt))))
 
 (define (render-string->vector env e)
   `(call ,(func.id (lookup-func env '_string_to_vector)) ,e))
@@ -2973,8 +2992,14 @@ function (p) {
   (let ((name (splice "_new_vector_" (render-element-type element-type)))
         (vt   (type.vector-of element-type)))
     (js-lib cx env name `(,*i32-type* ,element-type) vt
-            "function (n,init) { let a=new Array(n); for (let i=0; i < n; i++) a[i]=init; a._tag=~a; return a; }"
-            (type.vector-id vt))))
+            "
+function (n,init) {
+  let a=new Array(n);
+  for (let i=0; i < n; i++)
+    a[i]=init;
+  a._tag=~a;
+  return a;
+}" (type.vector-id vt))))
 
 (define (render-new-vector env element-type len init)
   (let ((name (splice "_new_vector_" (render-element-type element-type))))
@@ -2992,7 +3017,12 @@ function (p) {
 (define (synthesize-vector-ref cx env element-type)
   (let ((name (splice "_vector_ref_" (render-element-type element-type))))
     (js-lib cx env name `(,*anyref-type* ,*i32-type*) element-type
-            "function (p,i) { return p[i] }")))
+            "
+function (p,i) {
+  if ((i >>> 0) >= p.length)
+    throw new RangeError('Out of range: ' + i + ' for ' + p.length);
+  return p[i];
+}")))
 
 (define (render-vector-ref env e0 e1 element-type)
   (let ((name (splice "_vector_ref_" (render-element-type element-type))))
@@ -3001,7 +3031,12 @@ function (p) {
 (define (synthesize-vector-set! cx env element-type)
   (let ((name (splice "_vector_set_" (render-element-type element-type))))
     (js-lib cx env name `(,*anyref-type* ,*i32-type* ,element-type) *void-type*
-            "function (p,i,v) { p[i] = v }")))
+            "
+function (p,i,v) {
+  if ((i >>> 0) >= p.length)
+    throw new RangeError('Out of range: ' + i + ' for ' + p.length);
+  p[i] = v;
+}")))
 
 (define (render-vector-set! env e0 e1 e2 element-type)
   (let ((name (splice "_vector_set_" (render-element-type element-type))))

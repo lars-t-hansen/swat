@@ -3,9 +3,6 @@
 ## Missing language features and implementation bugs
 
 * Type checks at the call-in boundary + defined semantics for visible unexported types
-* Bounds checks on string and array accesses
-  * string-ref, substring
-  * vector-ref, vector-set!
 * Virtual function cleanup
   * Missing handling of the "default" case
   * Idiosyncratic "closed" syntax, defvirtual + defmethod would be less weird and "open" and forward-looking
@@ -17,7 +14,6 @@
 * Very high value missing language operators
   * <number>->string, string-><number> for number types
   * eq? on compatible reference types (probably not anyref)
-  * two FIXMEs for anyref is/as vector
 * Our vectors should be TO vectors.  The way to construct those are by taking the basic
   type, say, TO.int32, and applying an array constructor: TO.int32.array(5), this yields
   a constructor for arrays of length 5.  We'll need to cache those.
@@ -27,12 +23,23 @@
 ### Required
 
 * More documentation, esp about how to use for web development
-* More test code
+* More positive test code
+  - ???
+* More negative test code
+  - broken downcasts
+    - class -> subclass
+    - anyref -> class
+    - anyref -> vector
+    - anyref -> string
+  - static type failures 
+    - lots & lots of cases
 * Less brittle compiler / better error messages by reading phrase-at-a-time so that
   we at least have a starting line number
 
 ### Desirable
 
+* An "include" feature (both top-level, which aids JS, and top-level in the module, which aids swat)
+  with a reasonable include path search algorithm
 * speed up subtype test in JS code, maybe avoid going out of line [flag -O]
 * speed up vcalls, maybe avoid going out of line [flag -O]
 * speed up upcasts, don't emit code [flag -O]
@@ -100,6 +107,7 @@ There might be more operators but a predicate is a good start.
 ## Symbols
 
 * Because symbols are a good idea
+* Nice if these can interop with JS symbols
 
 ## Multi-module + meaningful type import and export
 

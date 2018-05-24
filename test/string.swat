@@ -37,6 +37,11 @@
 	   (y (string->vector x)))
       (vector-ref y n)))
 
+  (defun+ (s2v_2 -> i32)
+    (let* ((x "abcde")
+	   (y (as anyref (string->vector x))))
+      (is (Vector i32) y)))
+
   (defun+ (v2s -> String)
     (let* ((v (new (Vector i32) 5 0)))
       (vector-set! v 0 #\a)
@@ -45,6 +50,10 @@
       (vector-set! v 3 #\d)
       (vector-set! v 4 #\e)
       (vector->string v)))
+
+  (defun+ (substr (s String) (start i32) (end i32) -> String)
+    (substring s start end))
+
   )
 
 (js "
@@ -76,6 +85,20 @@ String.compile().then(function(module) {
   assertEq(i.s2v(0), 'a'.charCodeAt(0));
   assertEq(i.s2v(3), 'd'.charCodeAt(0));
   assertEq(i.v2s() + '', 'abcde');
+  assertEq(i.s2v_2(), true);
+  assertError(() => i.get('hiho', -1), RangeError, /out of range/);
+  assertError(() => i.get('hiho', 4), RangeError, /out of range/);
+  assertError(() => i.substr('hiho', -1, 2), RangeError, /out of range/);
+  assertEq(i.substr('hiho', 1, 4), 'iho');
+  assertError(() => i.substr('hiho', 1, 5), RangeError, /out of range/);
 },
 function(err) { throw err })
+
+function assertError(thunk, Exn, msg) {
+  var err = null;
+  try { thunk() } catch (e) { err = e }
+  assertEq(err !== null, true);
+  assertEq(err instanceof Exn, true);
+  assertEq(msg.exec(String(err)) !== null, true);
+}
 ")

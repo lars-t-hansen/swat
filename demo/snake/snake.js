@@ -46,10 +46,27 @@ compile: function () { return fetch('snake.wasm').then(WebAssembly.compileStream
      if (ys[i] === x) return true;
    return false;
  },
-'_new_vector_Tile':function (n,init) { let a=new Array(n); for (let i=0; i < n; i++) a[i]=init; a._tag=0; return a; },
+'_new_vector_Tile':
+function (n,init) {
+  let a=new Array(n);
+  for (let i=0; i < n; i++)
+    a[i]=init;
+  a._tag=0;
+  return a;
+},
 '_vector_length_Tile':function (p) { return p.length },
-'_vector_ref_Tile':function (p,i) { return p[i] },
-'_vector_set_Tile':function (p,i,v) { p[i] = v },
+'_vector_ref_Tile':
+function (p,i) {
+  if ((i >>> 0) >= p.length)
+    throw new RangeError('Out of range: ' + i + ' for ' + p.length);
+  return p[i];
+},
+'_vector_set_Tile':
+function (p,i,v) {
+  if ((i >>> 0) >= p.length)
+    throw new RangeError('Out of range: ' + i + ' for ' + p.length);
+  p[i] = v;
+},
 '_upcast_vector_Tile_to_anyref':function (p) { return p },
 '_anyref_is_vector_Tile':function (p) { return Array.isArray(p) && p._tag===0 },
 '_downcast_anyref_to_vector_Tile':
@@ -71,9 +88,19 @@ function (x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
 },
 '_string_literal':function (n) { return self.strings[n] },
 '_string_length':function (p) { return p.length },
-'_string_ref':function (p,n) { return p.charCodeAt(n) },
+'_string_ref':
+function (str,idx) {
+  if ((idx >>> 0) >= str.length)
+    throw new RangeError('Out of range: ' + idx + ' for ' + str.length);
+  return str.charCodeAt(idx);
+},
 '_string_append':function (p,q) { return p + q },
-'_substring':function (p,n,m) { return p.substring(m,n) },
+'_substring':
+function (str,start,end) {
+  if ((start >>> 0) >= str.length || (end >>> 0) > str.length)
+    throw new RangeError('Out of range: ' + start + ',' + end + ' for ' + str.length);
+  return str.substring(start,end);
+},
 '_string_compare':
 function (p,q) {
   let a = p.length;
@@ -86,10 +113,27 @@ function (p,q) {
   }
   return a - b;
 },
-'_new_vector_i32':function (n,init) { let a=new Array(n); for (let i=0; i < n; i++) a[i]=init; a._tag=1; return a; },
+'_new_vector_i32':
+function (n,init) {
+  let a=new Array(n);
+  for (let i=0; i < n; i++)
+    a[i]=init;
+  a._tag=1;
+  return a;
+},
 '_vector_length_i32':function (p) { return p.length },
-'_vector_ref_i32':function (p,i) { return p[i] },
-'_vector_set_i32':function (p,i,v) { p[i] = v },
+'_vector_ref_i32':
+function (p,i) {
+  if ((i >>> 0) >= p.length)
+    throw new RangeError('Out of range: ' + i + ' for ' + p.length);
+  return p[i];
+},
+'_vector_set_i32':
+function (p,i,v) {
+  if ((i >>> 0) >= p.length)
+    throw new RangeError('Out of range: ' + i + ' for ' + p.length);
+  p[i] = v;
+},
 '_upcast_vector_i32_to_anyref':function (p) { return p },
 '_anyref_is_vector_i32':function (p) { return Array.isArray(p) && p._tag===1 },
 '_downcast_anyref_to_vector_i32':
@@ -99,7 +143,15 @@ function (p) {
   return p;
 },
 '_vector_to_string':function (x) { return String.fromCharCode.apply(null, x) },
-'_string_to_vector':function (x) { let a=[]; for(let i=0; i<x.length; i++) a.push(x.charCodeAt(i)); return a },
+'_string_to_vector':
+function (s) {
+  let len = x.length;
+  let a=new Array(len);
+  for(let i=0; i<len; i++)
+    a[i] = x.charCodeAt(i);
+  a._tag=1;
+  return a;
+},
 '_anyref_is_string':function (p) { return p instanceof String },
 '_upcast_string_to_anyref':function (p) { return p },
 '_downcast_anyref_to_string':

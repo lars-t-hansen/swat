@@ -34,6 +34,12 @@
   (defun+ (isNull (a (Vector i32)) -> i32)
     (null? a))
   
+  (defun+ (get (v (Vector i32)) (n i32) -> i32)
+    (vector-ref v n))
+
+  (defun+ (set (v (Vector i32)) (n i32) (x i32))
+    (vector-set! v n x))
+
   )
 
 (js "
@@ -49,6 +55,21 @@ Vec.compile().then(function(module) {
   assertEq(ins.anyref_as_v(v), v);
   var w = ins.make2(3);
   assertEq(ins.anyref_is_v(w), false);
+  assertEq(ins.get(v, 3), 5);
+  ins.set(v, 3, 8);
+  assertEq(ins.get(v, 3), 8);
+  assertError(() => ins.get(v, -1), RangeError, /out of range/);
+  assertError(() => ins.get(v, 8), RangeError, /out of range/);
+  assertError(() => ins.set(v, -1, 0), RangeError, /out of range/);
+  assertError(() => ins.set(v, 8, 0), RangeError, /out of range/);
 },
 function(err) { throw err })
+
+function assertError(thunk, Exn, msg) {
+  var err = null;
+  try { thunk() } catch (e) { err = e }
+  assertEq(err !== null, true);
+  assertEq(err instanceof Exn, true);
+  assertEq(msg.exec(String(err)) !== null, true);
+}
 ")
