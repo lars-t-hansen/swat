@@ -411,11 +411,11 @@ Lvalue     ::= Id | FieldRef
    object, and the field designated by the name in the FieldRef in that object
    is updated.
 
-   TODO: inc! and dec! should take an operand, but it is optional and
-   defaults to '1'.
+   TODO: inc! and dec! should take an optional operand for the delta, defaulting
+   to 1.
 
-   TODO: Should inc! and dec! return a value, eg, old value, new value?  Check
-   the CL hyperspec.
+   TODO: Should inc! and dec! return a value?  In Common Lisp, incf returns the
+   new value.
 
 Let        ::= (let ((Id Init) ...) Expr Expr ...)
 Init       ::= Expr
@@ -535,10 +535,12 @@ TypeTest   ::= (is TypeName Expr)
      If T is a subtype of TypeName, or if V's dynamic type is TypeName or a
      subtype of TypeName then return 1, otherwise 0.
 
-   TODO: This predicate should be written (or should be sugared as) "ClassName?"
-   for each ClassName, and "Object?" should be predefined of course.  And then
+   TODO: This predicate could be written (or could be sugared as) "ClassName?"
+   for each ClassName, and "Object?" could be predefined of course.  And then
    we would have string? (and/or String? maybe) and vector? (and/or Vector?, though
-   with the Vector parameter that one's dicy)
+   with the Vector parameter that one's dicy).
+
+   TODO: Or maybe it should be "is?" or "is-type?".
 
 TypeCast   ::= (as TypeName Expr)
 
