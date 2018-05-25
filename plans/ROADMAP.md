@@ -56,7 +56,7 @@
 * The lack of reference-type globals is a real hardship
 * Really want something that deals with the DOM
 * maybe port Life / Mandelbrot / PSON from AssemblyScript?  Life / Mandel are
-  not obvious because they are very array-oriented, so we need arrays.
+  not obvious because they are very array-oriented, but clearly doable.
 * Obviously we can do a self-compiler, but it's a big project and not very interesting
 
 # swat later, or opportunistically
