@@ -5,6 +5,8 @@ JS=~/bin/jsshell --wasm-gc
 SWAT=../swat
 BINARIZE=../binarize
 
+COMPILER=../swat.sch.slfasl
+
 # Tests that should pass
 OBJS=fib.js while.js loop.js multi-modules.js global.js syntax.js bool.js \
 	unop.js binop.js misc.js conversion.js class.js evalexpr.js wabbit.js \
@@ -25,7 +27,7 @@ test-failure: $(FAILOBJS)
 clean:
 	rm -f $(OBJS) $(FAILOBJS) *~
 
-$(OBJS) $(FAILOBJS): Makefile
+$(OBJS) $(FAILOBJS): Makefile $(COMPILER)
 
 %.js : %.swat
 	$(SWAT) --js $<

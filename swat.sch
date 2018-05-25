@@ -354,9 +354,6 @@ For detailed usage instructions see MANUAL.md.
 (define (virtuals env)
   (reverse (filter virtual? (map cdr (env.globals env)))))
 
-(define (funcs-and-virtuals env)
-  (reverse (filter (lambda (x) (or (func? x) (virtual? x))) (map cdr (env.globals env)))))
-
 (define (globals env)
   (reverse (filter global? (map cdr (env.globals env)))))
 
@@ -518,7 +515,9 @@ For detailed usage instructions see MANUAL.md.
          (if (func.module f)
              `(import ,(func.module f) ,(symbol->string (func.name f)) ,(assemble-function f '()))
              (func.defn f)))
-       (funcs-and-virtuals env)))
+       (sort (cx.functions cx)
+             (lambda (x y)
+               (< (indirection-get (func.id x)) (indirection-get (func.id y)))))))
 
 (define (parse-toplevel-name n import? tag)
   (check-symbol n (string-append "Bad " tag " name") n)
@@ -1004,8 +1003,10 @@ For detailed usage instructions see MANUAL.md.
                 ;; If so, cons an entry onto discs with (uber fn)
                 ;;
                 ;; FIXME: not right, we need a true error function here.
+                ;; FIXME: assq will probably work but assoc with class=? would be better?
                 (if (not (assq uber discs))
                     (let ((err (make-func 'error #f #f '() '() *void-type* #f #f)))
+                      (assemble-function err '(unreachable))
                       (register-func! cx err)
                       (func.table-index-set! err 0)
                       (set! discs (cons (list uber err) discs))))
@@ -3386,6 +3387,7 @@ putstr(Array.prototype.join.call(new Uint8Array(" module-bytes "), ' '));
           ((indirection? x)
            (prq (indirection-get x)))
           (else
+           (write x)
            (error "Don't know what this is: " x))))
 
   (print x))

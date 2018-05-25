@@ -5,6 +5,8 @@ JS=~/bin/jsshell --wasm-gc
 SWAT=../../swat
 BINARIZE=../../binarize
 
+COMPILER=../../swat.sch.slfasl
+
 .PHONY: default test snake
 
 default: snake
@@ -13,7 +15,7 @@ test: snake
 
 snake: snake.js snake.wasm
 
-snake.js snake.metawasm.js: snake.swat
+snake.js snake.metawasm.js: snake.swat Makefile $(COMPILER)
 	$(SWAT) --js+wasm snake.swat
 
 clean:
