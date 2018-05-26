@@ -374,10 +374,9 @@ For detailed usage instructions see MANUAL.md.
 ;; Translation context.
 
 (define-record-type cx
-  (%make-cx% slots func-id global-id gensym-id vid support name table-index table-elements types strings string-id vector-id functions)
+  (%make-cx% slots global-id gensym-id vid support name table-index table-elements types strings string-id vector-id functions)
   cx?
   (slots          cx.slots          cx.slots-set!)          ; Slots storage (during body expansion)
-  (func-id        cx.func-id        cx.func-id-set!)        ; Next function ID
   (global-id      cx.global-id      cx.global-id-set!)      ; Next global ID
   (gensym-id      cx.gensym-id      cx.gensym-id-set!)      ; Gensym ID
   (vid            cx.vid            cx.vid-set!)            ; Next virtual function ID (for dispatch)
@@ -396,7 +395,7 @@ For detailed usage instructions see MANUAL.md.
   (functions      cx.functions      cx.functions-set!))     ; List of all functions in order encountered, reversed
 
 (define (make-cx name support)
-  (%make-cx% #f 0 0 0 0 support name 0 '() '() '() 0 0 '()))
+  (%make-cx% #f 0 0 0 support name 0 '() '() '() 0 0 '()))
 
 ;; Gensym.
 
@@ -834,7 +833,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define (renumber-functions cx env)
   (let ((functions (reverse (cx.functions cx)))
-        (id        (cx.func-id cx)))
+        (id        0))
     (for-each (lambda (fn)
                 (if (func.module fn)
                     (begin
@@ -846,8 +845,7 @@ For detailed usage instructions see MANUAL.md.
                     (begin
                       (indirection-set! (func.id fn) id)
                       (set! id (+ id 1)))))
-              functions)
-    (cx.func-id-set! cx id)))
+              functions)))
 
 ;; Virtuals
 
