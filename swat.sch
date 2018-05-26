@@ -348,14 +348,8 @@ For detailed usage instructions see MANUAL.md.
         (fail "Not a class type" name))
     (type.class probe)))
 
-(define (funcs env)
-  (reverse (filter func? (map cdr (env.globals env)))))
-
 (define (virtuals env)
   (reverse (filter virtual? (map cdr (env.globals env)))))
-
-(define (globals env)
-  (reverse (filter global? (map cdr (env.globals env)))))
 
 (define (classes env)
   (map type.class (reverse (filter (lambda (x)
@@ -374,10 +368,9 @@ For detailed usage instructions see MANUAL.md.
 ;; Translation context.
 
 (define-record-type cx
-  (%make-cx% slots global-id gensym-id vid support name table-index table-elements types strings string-id vector-id functions)
+  (%make-cx% slots gensym-id vid support name table-index table-elements types strings string-id vector-id functions globals)
   cx?
   (slots          cx.slots          cx.slots-set!)          ; Slots storage (during body expansion)
-  (global-id      cx.global-id      cx.global-id-set!)      ; Next global ID
   (gensym-id      cx.gensym-id      cx.gensym-id-set!)      ; Gensym ID
   (vid            cx.vid            cx.vid-set!)            ; Next virtual function ID (for dispatch)
   (support        cx.support)                               ; Host support code (opaque structure)
@@ -392,10 +385,11 @@ For detailed usage instructions see MANUAL.md.
   (strings        cx.strings        cx.strings-set!)        ; String literals ((string . id) ...)
   (string-id      cx.string-id      cx.string-id-set!)      ; Next string literal id
   (vector-id      cx.vector-id      cx.vector-id-set!)      ; Next vector type id
-  (functions      cx.functions      cx.functions-set!))     ; List of all functions in order encountered, reversed
+  (functions      cx.functions      cx.functions-set!)      ; List of all functions in order encountered, reversed
+  (globals        cx.globals        cx.globals-set!))       ; List of all globals in order encountered, reversed
 
 (define (make-cx name support)
-  (%make-cx% #f 0 0 0 support name 0 '() '() '() 0 0 '()))
+  (%make-cx% #f 0 0 support name 0 '() '() '() 0 0 '() '()))
 
 ;; Gensym.
 
@@ -444,11 +438,12 @@ For detailed usage instructions see MANUAL.md.
     (for-each (lambda (d)
                 (check-list-atleast d 1 "Bad top-level phrase" d)
                 (case (car d)
-                  ((defconst- defvar-)
-                   (expand-global-phase1 cx env d))
                   ((defclass)
                    (expand-class-phase1 cx env d))
-                  ((defun- defun defun+ defconst defconst+ defvar defvar+ defvirtual defvirtual+)
+                  ((defun- defun defun+
+                    defconst- defconst defconst+
+                    defvar- defvar defvar+
+                    defvirtual defvirtual+)
                    #t)
                   (else
                    (fail "Unknown top-level phrase" d))))
@@ -462,7 +457,7 @@ For detailed usage instructions see MANUAL.md.
                    (expand-func-phase1 cx env d))
                   ((defvirtual defvirtual+)
                    (expand-virtual-phase1 cx env d))
-                  ((defconst defconst+ defvar defvar+)
+                  ((defconst- defconst defconst+ defvar- defvar defvar+)
                    (expand-global-phase1 cx env d))))
               body)
     (for-each (lambda (d)
@@ -475,6 +470,7 @@ For detailed usage instructions see MANUAL.md.
                    (expand-global-phase2 cx env d))))
               body)
     (compute-dispatch-maps cx env)
+    (renumber-globals cx env)
     (renumber-functions cx env)
     (emit-class-descriptors cx env)
     (emit-string-literals cx env)
@@ -505,7 +501,9 @@ For detailed usage instructions see MANUAL.md.
                `(global ,@(if (global.export? g) `((export ,(symbol->string (global.name g)))) '())
                         ,t
                         ,(global.init g)))))
-       (globals env)))
+       (sort (cx.globals cx)
+             (lambda (x y)
+               (< (indirection-get (global.id x)) (indirection-get (global.id y)))))))
 
 (define (generate-functions cx env)
   (map (lambda (f)
@@ -1034,15 +1032,17 @@ For detailed usage instructions see MANUAL.md.
   (type    global.type)
   (init    global.init global.init-set!))
 
-(define (make-global name module export? mut? id type)
-  (%make-global% name module export? mut? id type #f))
+(define (make-global name module export? mut? type)
+  (%make-global% name module export? mut? (make-indirection) type #f))
 
 (define (define-global! cx env name module export? mut? type)
-  (let* ((id   (cx.global-id cx))
-         (glob (make-global name module export? mut? id type)))
-    (cx.global-id-set! cx (+ id 1))
+  (let* ((glob (make-global name module export? mut? type)))
     (define-env-global! env name glob)
+    (register-global! cx glob)
     glob))
+
+(define (register-global! cx glob)
+  (cx.globals-set! cx (cons glob (cx.globals cx))))
 
 (define (expand-global-phase1 cx env g)
   (check-list-oneof g '(3 4) "Bad global" g)
@@ -1068,6 +1068,22 @@ For detailed usage instructions see MANUAL.md.
           (let ((defn (lookup-global env name)))
             (let-values (((v t) (expand-constant-expr cx init)))
               (global.init-set! defn v)))))))
+
+(define (renumber-globals cx env)
+  (let ((globals (reverse (cx.globals cx)))
+        (id      0))
+    (for-each (lambda (g)
+                (if (global.module g)
+                    (begin
+                      (indirection-set! (global.id g) id)
+                      (set! id (+ id 1)))))
+              globals)
+    (for-each (lambda (g)
+                (if (not (global.module g))
+                    (begin
+                      (indirection-set! (global.id g) id)
+                      (set! id (+ id 1)))))
+              globals)))
 
 ;; Locals
 
