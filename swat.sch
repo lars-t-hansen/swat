@@ -2558,13 +2558,13 @@ For detailed usage instructions see MANUAL.md.
                      1))                           ; next class ID
 
 (define (format-lib cx name fmt . args)
-  (apply format (support.lib (cx.support cx)) (string-append "'~a':" fmt ",\n") name args))
+  (apply format (support.lib (cx.support cx)) (string-splice "'~a':" fmt ",\n") name args))
 
 (define (format-type cx name fmt . args)
-  (apply format (support.type (cx.support cx)) (string-append "'~a':" fmt ",\n") name args))
+  (apply format (support.type (cx.support cx)) (string-splice "'~a':" fmt ",\n") name args))
 
 (define (format-desc cx name fmt . args)
-  (apply format (support.desc (cx.support cx)) (string-append "'~a':" fmt ",\n") name args))
+  (apply format (support.desc (cx.support cx)) (string-splice "'~a':" fmt ",\n") name args))
 
 (define (js-lib cx env name formals result code . args)
   (assert (symbol? name))
@@ -2651,20 +2651,13 @@ For detailed usage instructions see MANUAL.md.
 
 (define (synthesize-class-descriptors cx env)
   (for-each (lambda (cls)
-              (synthesize-class-descriptor cx env cls))
+              (format-type cx (class.name cls)
+                           "new TO.StructType({~a})"
+                           (comma-separate (cons "_desc_:TO.Object"
+                                                 (map (lambda (f)
+                                                        (string-splice "'" (car f) "':" (typed-object-name (cadr f))))
+                                                      (class.fields cls))))))
             (classes env)))
-
-(define (synthesize-class-descriptor cx env cls)
-  (let ((name   (symbol->string (class.name cls)))
-        (fields (class.fields cls)))
-    (format-type cx name
-                 "new TO.StructType({~a})"
-                 (comma-separate (cons "_desc_:TO.Object"
-                                       (map (lambda (f)
-                                              (let ((name (symbol->string (car f)))
-                                                    (type (typed-object-name (cadr f))))
-                                                (string-append "'" name "':" type)))
-                                            fields))))))
 
 (define (emit-class-descriptors cx env)
 
@@ -3295,13 +3288,15 @@ putstr(Array.prototype.join.call(new Uint8Array(" module-bytes "), ' '));
      x)))
 
 (define (splice . xs)
-  (string->symbol
-   (apply string-append (map (lambda (x)
-                               (cond ((string? x) x)
-                                     ((symbol? x) (symbol->string x))
-                                     ((number? x) (number->string x))
-                                     (else (canthappen))))
-                             xs))))
+  (string->symbol (apply string-splice xs)))
+
+(define (string-splice . xs)
+  (apply string-append (map (lambda (x)
+                              (cond ((string? x) x)
+                                    ((symbol? x) (symbol->string x))
+                                    ((number? x) (number->string x))
+                                    (else (canthappen))))
+                            xs)))
 
 (define (fmt out . args)
   (for-each (lambda (x)
