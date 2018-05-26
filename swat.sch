@@ -457,8 +457,8 @@ For detailed usage instructions see MANUAL.md.
                    (fail "Unknown top-level phrase" d))))
               body)
     (resolve-classes cx env)
-    (synthesize-string-ops cx env)
-    (synthesize-class-ops cx env)
+    (label-classes cx env)
+    (synthesize-class-descriptors cx env)
     (for-each (lambda (d)
                 (case (car d)
                   ((defun defun+)
@@ -775,7 +775,7 @@ For detailed usage instructions see MANUAL.md.
     (let ((drop? (and (void-type? expected-type)
                       (not (void-type? result-type)))))
       (if (not drop?)
-          (let ((val+ty (widen-value env expanded result-type expected-type)))
+          (let ((val+ty (widen-value cx env expanded result-type expected-type)))
             (if val+ty
                 `(,@(get-slot-decls (cx.slots cx)) ,(car val+ty))
                 (fail "Return type mismatch" (pretty-type expected-type) (pretty-type result-type))))
@@ -965,7 +965,7 @@ For detailed usage instructions see MANUAL.md.
                                (fs v-formals (cdr fs))
                                (xs '()       (cons `(get_local ,i) xs)))
                               ((null? fs) (reverse xs)))
-                        ,(render-resolve-virtual env '(get_local 0) `(i32.const ,(virtual.vid virt)))))))))
+                        ,(render-resolve-virtual cx env '(get_local 0) `(i32.const ,(virtual.vid virt)))))))))
 
 (define (assemble-virtual virtual body)
   (let ((f (prepend-signature (func.name virtual)
@@ -1198,7 +1198,6 @@ For detailed usage instructions see MANUAL.md.
                (t  (make-type 'vector #f #f element id #f #f)))
           (cx.vector-id-set! cx (+ id 1))
           (type.vector-of-set! element t)
-          (synthesize-vector-ops cx env element)
           t))))
 
 (define (make-class-type cls)
@@ -1306,25 +1305,25 @@ For detailed usage instructions see MANUAL.md.
         (else
          (fail "Invalid type" t))))
 
-(define (widen-value env value value-type target-type)
+(define (widen-value cx env value value-type target-type)
   (cond ((type=? value-type target-type)
          (list value value-type))
         ((and (class-type? value-type)
               (class-type? target-type)
               (proper-subclass? (type.class value-type) (type.class target-type)))
-         (list (render-upcast-class-to-class env (type.class target-type) value)
+         (list (render-upcast-class-to-class cx env (type.class target-type) value)
                target-type))
         ((and (class-type? value-type)
               (anyref-type? target-type))
-         (list (render-upcast-class-to-anyref env value)
+         (list (render-upcast-class-to-anyref cx env value)
                target-type))
         ((and (vector-type? value-type)
               (anyref-type? target-type))
-         (list (render-upcast-vector-to-anyref env (type.vector-element value-type) value)
+         (list (render-upcast-vector-to-anyref cx env (type.vector-element value-type) value)
                target-type))
         ((and (string-type? value-type)
               (anyref-type? target-type))
-         (list (render-upcast-string-to-anyref env value)
+         (list (render-upcast-string-to-anyref cx env value)
                target-type))
         (else
          #f)))
@@ -1473,7 +1472,7 @@ For detailed usage instructions see MANUAL.md.
           id))))
 
 (define (expand-string-literal cx expr env)
-  (values (render-string-literal env (string-literal->id cx expr))
+  (values (render-string-literal cx env (string-literal->id cx expr))
           *string-type*))
 
 (define-record-type expander
@@ -1612,12 +1611,12 @@ For detailed usage instructions see MANUAL.md.
       (cond ((symbol? name)
              (let ((binding (lookup-variable env name)))
                (cond ((local? binding)
-                      (let ((val+ty (widen-value env e0 t0 (local.type binding))))
+                      (let ((val+ty (widen-value cx env e0 t0 (local.type binding))))
                         (if (not val+ty)
                             (check-same-type t0 (local.type binding) "'set!'" expr))
                         (values `(set_local ,(local.slot binding) ,(car val+ty)) *void-type*)))
                      ((global? binding)
-                      (let ((val+ty (widen-value env e0 t0 (global.type binding))))
+                      (let ((val+ty (widen-value cx env e0 t0 (global.type binding))))
                         (if (not val+ty)
                             (check-same-type t0 (global.type binding) "'set!'" expr))
                         (values `(set_global ,(global.id binding) ,(car val+ty)) *void-type*)))
@@ -1628,10 +1627,10 @@ For detailed usage instructions see MANUAL.md.
                            (process-accessor-expression cx name env))
                           ((ev tv)
                            (expand-expr cx val env)))
-               (let ((val+ty (widen-value env ev tv field-type)))
+               (let ((val+ty (widen-value cx env ev tv field-type)))
                  (if (not val+ty)
                      (check-same-type field-type tv "'set!' object field" expr))
-                 (values (render-field-update env cls field-name base-expr (car val+ty))
+                 (values (render-field-update cx env cls field-name base-expr (car val+ty))
                          *void-type*))))
             (else
              (fail "Illegal lvalue" expr))))))
@@ -1718,8 +1717,8 @@ For detailed usage instructions see MANUAL.md.
            (let* ((cls     (type.class type))
                   (fields  (class.fields cls))
                   (actuals (expand-expressions cx (cddr expr) env))
-                  (actuals (check-and-widen-arguments env fields actuals expr)))
-             (values (render-new-class env cls actuals) type)))
+                  (actuals (check-and-widen-arguments cx env fields actuals expr)))
+             (values (render-new-class cx env cls actuals) type)))
           ((vector-type? type)
            (check-list expr 4 "Bad arguments to 'new'" expr)
            (let*-values (((el tl) (expand-expr cx (caddr expr) env))
@@ -1727,7 +1726,7 @@ For detailed usage instructions see MANUAL.md.
              (check-i32-type tl "'new' vector length" expr)
              (let ((base (type.vector-element type)))
                (check-same-type base ti "'new' initial value" expr)
-               (values (render-new-vector env base el ei) type))))
+               (values (render-new-vector cx env base el ei) type))))
           (else
            (fail "Invalid type to 'new'" tyexpr expr)))))
 
@@ -1735,11 +1734,11 @@ For detailed usage instructions see MANUAL.md.
   (let* ((tyexpr (cadr expr))
          (type   (parse-type cx env tyexpr)))
     (cond ((class-type? type)
-           (values (render-class-null env (type.class type)) type))
+           (values (render-class-null cx env (type.class type)) type))
           ((vector-type? type)
-           (values (render-vector-null env (type.vector-element type)) type))
+           (values (render-vector-null cx env (type.vector-element type)) type))
           ((anyref-type? type)
-           (values (render-anyref-null env) *anyref-type*))
+           (values (render-anyref-null cx env) *anyref-type*))
           (else
            (fail "Not a valid reference type for 'null'" tyexpr)))))
 
@@ -1753,7 +1752,7 @@ For detailed usage instructions see MANUAL.md.
              (cond ((string-type? t)
                     `(block i32 ,e drop (i32.const 1)))
                    ((anyref-type? t)
-                    (values (render-anyref-is-string env e) *i32-type*))
+                    (values (render-anyref-is-string cx env e) *i32-type*))
                    (else
                     (fail "Bad source type in 'is'" t expr))))
             ((class-type? target-type)
@@ -1763,18 +1762,18 @@ For detailed usage instructions see MANUAL.md.
                         (cond ((subclass? value-cls target-cls)
                                (values `(block i32 ,e drop (i32.const 1)) *i32-type*))
                               ((subclass? target-cls value-cls)
-                               (values (render-class-is-class env target-cls e) *i32-type*))
+                               (values (render-class-is-class cx env target-cls e) *i32-type*))
                               (else
                                (fail "Types in 'is' are unrelated" expr)))))
                      ((anyref-type? t)
-                      (values (render-anyref-is-class env target-cls e) *i32-type*))
+                      (values (render-anyref-is-class cx env target-cls e) *i32-type*))
                      (else
                       (fail "Expression in 'is' is not of class type" expr)))))
             ((vector-type? target-type)
              (cond ((and (vector-type? t) (type=? target-type t))
                     `(block i32 ,e dro (i32.const 1)))
                    ((anyref-type? t)
-                    (values (render-anyref-is-vector env e (type.vector-element target-type)) *i32-type*))
+                    (values (render-anyref-is-vector cx env e (type.vector-element target-type)) *i32-type*))
                    (else
                     (fail "Bad source type in 'is'" t expr))))
             (else
@@ -1788,18 +1787,18 @@ For detailed usage instructions see MANUAL.md.
              (cond ((anyref-type? t)
                     (values e target-type))
                    ((string-type? t)
-                    (values (render-upcast-string-to-anyref env e) target-type))
+                    (values (render-upcast-string-to-anyref cx env e) target-type))
                    ((class-type? t)
-                    (values (render-upcast-class-to-anyref env e) target-type))
+                    (values (render-upcast-class-to-anyref cx env e) target-type))
                    ((vector-type? t)
-                    (values (render-upcast-vector-to-anyref env (type.vector-element t) e) target-type))
+                    (values (render-upcast-vector-to-anyref cx env (type.vector-element t) e) target-type))
                    (else
                     (canthappen))))
             ((string-type? target-type)
              (cond ((string-type? t)
                     (values e target-type))
                    ((anyref-type? t)
-                    (values (render-downcast-anyref-to-string env e) target-type))
+                    (values (render-downcast-anyref-to-string cx env e) target-type))
                    (else
                     (fail "Bad source type in 'as'" t expr))))
             ((class-type? target-type)
@@ -1809,15 +1808,15 @@ For detailed usage instructions see MANUAL.md.
                         (cond ((class=? value-cls target-cls)
                                (values e t))
                               ((subclass? value-cls target-cls)
-                               (values (render-upcast-class-to-class env target-cls e)
+                               (values (render-upcast-class-to-class cx env target-cls e)
                                        (class.type target-cls)))
                               ((subclass? target-cls value-cls)
-                               (values (render-downcast-class-to-class env target-cls e)
+                               (values (render-downcast-class-to-class cx env target-cls e)
                                        (class.type target-cls)))
                               (else
                                (fail "Types in 'as' are unrelated" expr)))))
                      ((anyref-type? t)
-                      (values (render-downcast-anyref-to-class env target-cls e)
+                      (values (render-downcast-anyref-to-class cx env target-cls e)
                               (class.type target-cls)))
                      (else
                       (fail "Expression in 'as' is not of class type" expr)))))
@@ -1825,7 +1824,7 @@ For detailed usage instructions see MANUAL.md.
              (cond ((and (vector-type? t) (type=? target-type t))
                     (values e target-type))
                    ((anyref-type? t)
-                    (values (render-downcast-anyref-to-vector env e (type.vector-element target-type))
+                    (values (render-downcast-anyref-to-vector cx env e (type.vector-element target-type))
                             target-type))
                    (else
                     (fail "Bad source type in 'as'" t expr))))
@@ -2113,12 +2112,12 @@ For detailed usage instructions see MANUAL.md.
 (define (expand-null? cx expr env)
   (let-values (((e t) (expand-expr cx (cadr expr) env)))
     (check-nullable-ref-type t "'null?'" expr)
-    (values (render-null? env e) *i32-type*)))
+    (values (render-null? cx env e) *i32-type*)))
 
 (define (expand-nonnull? cx expr env)
   (let-values (((e t) (expand-expr cx (cadr expr) env)))
     (check-nullable-ref-type t "'nonnull?'" expr)
-    (values (render-nonnull? env e) *i32-type*)))
+    (values (render-nonnull? cx env e) *i32-type*)))
 
 (define (expand-zero? cx expr env)
   (let-values (((op1 t1) (expand-expr cx (cadr expr) env)))
@@ -2199,7 +2198,7 @@ For detailed usage instructions see MANUAL.md.
   (check-list expr 2 "Bad accessor" expr)
   (let-values (((base-expr cls field-name field-type)
                 (process-accessor-expression cx expr env)))
-    (values (render-field-access env cls field-name base-expr)
+    (values (render-field-access cx env cls field-name base-expr)
             field-type)))
 
 ;; Returns rendered-base-expr class field-name field-type
@@ -2223,20 +2222,20 @@ For detailed usage instructions see MANUAL.md.
   (let* ((args    (cdr expr))
          (formals (func.formals func))
          (actuals (expand-expressions cx args env))
-         (actuals (check-and-widen-arguments env formals actuals expr)))
+         (actuals (check-and-widen-arguments cx env formals actuals expr)))
     (values `(call ,(func.id func) ,@(map car actuals))
             (func.result func))))
 
 ;; formals is ((name type) ...)
 ;; actuals is ((val type) ...)
 
-(define (check-and-widen-arguments env formals actuals context)
+(define (check-and-widen-arguments cx env formals actuals context)
   (if (not (= (length formals) (length actuals)))
       (fail "wrong number of arguments" context))
   (map (lambda (formal actual)
          (let ((want (cadr formal))
                (have (cadr actual)))
-           (or (widen-value env (car actual) have want)
+           (or (widen-value cx env (car actual) have want)
                (fail "Not same type in" context "and widening not possible.\n"
                      (pretty-type have) (pretty-type want)))))
        formals actuals))
@@ -2324,25 +2323,25 @@ For detailed usage instructions see MANUAL.md.
                         (check-i32-type (cadr x) "Argument to 'string'" expr)
                         (car x))
                       (expand-expressions cx (cdr expr) env))))
-    (values (render-new-string env actuals) *string-type*)))
+    (values (render-new-string cx env actuals) *string-type*)))
 
 (define (expand-string-length cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
     (check-string-type t0 "'string-length'" expr)
-    (values (render-string-length env e0) *i32-type*)))
+    (values (render-string-length cx env e0) *i32-type*)))
 
 (define (expand-string-ref cx expr env)
   (let*-values (((e0 t0) (expand-expr cx (cadr expr) env))
                 ((e1 t1) (expand-expr cx (caddr expr) env)))
     (check-string-type t0 "'string-ref'" expr)
     (check-i32-type t1 "'string-ref'" expr)
-    (values (render-string-ref env e0 e1) *i32-type*)))
+    (values (render-string-ref cx env e0 e1) *i32-type*)))
 
 (define (expand-string-append cx expr env)
   (let ((l (length expr)))
     (values (case l
               ((1)
-               (render-string-literal env (string-literal->id cx "")))
+               (render-string-literal cx env (string-literal->id cx "")))
               ((2)
                (let*-values (((e0 t0) (expand-expr cx (cadr expr) env)))
                  (check-string-type t0 "'string-append'" expr)
@@ -2352,7 +2351,7 @@ For detailed usage instructions see MANUAL.md.
                              ((e1 t1) (expand-expr cx (caddr expr) env)))
                  (check-string-type t0 "'string-append'" expr)
                  (check-string-type t1 "'string-append'" expr)
-                 (render-string-append env e0 e1)))
+                 (render-string-append cx env e0 e1)))
               (else
                (let-values (((e0 t0)
                              (expand-expr cx
@@ -2369,7 +2368,7 @@ For detailed usage instructions see MANUAL.md.
     (check-string-type t0 "'substring'" expr)
     (check-i32-type t1 "'substring'" expr)
     (check-i32-type t2 "'substring'" expr)
-    (values (render-substring env e0 e1 e2) *string-type*)))
+    (values (render-substring cx env e0 e1 e2) *string-type*)))
 
 (define (expand-string-relop cx expr env)
   (let*-values (((e0 t0) (expand-expr cx (cadr expr) env))
@@ -2384,14 +2383,14 @@ For detailed usage instructions see MANUAL.md.
                  ((string>?)  'i32.gt_s)
                  ((string>=?) 'i32.ge_s)
                  (else        (canthappen)))
-              ,(render-string-compare env e0 e1)
+              ,(render-string-compare cx env e0 e1)
               (i32.const 0))
             *i32-type*)))
 
 (define (expand-vector-length cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
     (check-vector-type t0 "'vector-length'" expr)
-    (values (render-vector-length env e0 (type.vector-element t0)) *i32-type*)))
+    (values (render-vector-length cx env e0 (type.vector-element t0)) *i32-type*)))
 
 (define (expand-vector-ref cx expr env)
   (let*-values (((e0 t0) (expand-expr cx (cadr expr) env))
@@ -2399,7 +2398,7 @@ For detailed usage instructions see MANUAL.md.
     (check-vector-type t0 "'vector-ref'" expr)
     (check-i32-type t1 "'vector-ref'" expr)
     (let ((element-type (type.vector-element t0)))
-      (values (render-vector-ref env e0 e1 element-type) element-type))))
+      (values (render-vector-ref cx env e0 e1 element-type) element-type))))
 
 (define (expand-vector-set! cx expr env)
   (let*-values (((e0 t0) (expand-expr cx (cadr expr) env))
@@ -2409,18 +2408,18 @@ For detailed usage instructions see MANUAL.md.
     (check-i32-type t1 "'vector-set!'" expr)
     (check-same-type (type.vector-element t0) t2 "'vector-set!'" expr)
     (let ((element-type (type.vector-element t0)))
-      (values (render-vector-set! env e0 e1 e2 element-type) *void-type*))))
+      (values (render-vector-set! cx env e0 e1 e2 element-type) *void-type*))))
 
 (define (expand-vector->string cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
     (check-vector-type t0 "'vector->string'" expr)
     (check-i32-type (type.vector-element t0) "'vector->string'" expr)
-    (values (render-vector->string env e0) *string-type*)))
+    (values (render-vector->string cx env e0) *string-type*)))
 
 (define (expand-string->vector cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
     (check-string-type t0 "'string->vector'" expr)
-    (values (render-string->vector env e0) (make-vector-type cx env *i32-type*))))
+    (values (render-string->vector cx env e0) (make-vector-type cx env *i32-type*))))
 
 ;; Type checking.
 
@@ -2562,6 +2561,20 @@ For detailed usage instructions see MANUAL.md.
   (apply format-lib cx name code args)
   (synthesize-func-import cx env name formals result))
 
+(define (synthesize-func-import cx env name formal-types result)
+  (let ((rendered-params (map (lambda (f)
+                                `(param ,(render-type f)))
+                              formal-types))
+        (formals         (map (lambda (k f)
+                                (list (splice "p" k) f))
+                              (iota (length formal-types)) formal-types)))
+    (define-function! cx env name "lib" #f rendered-params formals result #f)))
+
+(define (lookup-synthesized-func cx env name synthesizer . args)
+  (if (not (lookup env name))
+      (apply synthesizer cx env name args))
+  (lookup-func env name))
+
 ;; Types
 
 (define (render-type t)
@@ -2605,54 +2618,29 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Miscellaneous
 
-(define (render-anyref-null env)
+(define (render-anyref-null cx env)
   `(ref.null anyref))
 
-(define (render-null? env base-expr)
+(define (render-null? cx env base-expr)
   `(ref.is_null ,base-expr))
 
-(define (render-nonnull? env base-expr)
+(define (render-nonnull? cx env base-expr)
   `(i32.eqz (ref.is_null ,base-expr)))
-
-(define (synthesize-func-import cx env name formal-types result)
-  (let ((rendered-params (map (lambda (f)
-                                `(param ,(render-type f)))
-                              formal-types))
-        (formals         (map (lambda (k f)
-                                (list (splice "p" k) f))
-                              (iota (length formal-types)) formal-types)))
-    (define-function! cx env name "lib" #f rendered-params formals result #f)))
 
 ;; Classes
 
-(define (synthesize-class-ops cx env)
+(define (label-classes cx env)
+  (for-each (lambda (cls)
+              (let* ((support (cx.support cx))
+                     (id      (support.class-id support)))
+                (support.class-id-set! support (+ id 1))
+                (class.host-set! cls id)))
+            (classes env)))
 
-  (define (label-class cx env cls)
-    (let* ((support (cx.support cx))
-           (id      (support.class-id support)))
-      (support.class-id-set! support (+ id 1))
-      (class.host-set! cls id)))
-
-  (let ((clss (classes env)))
-    (if (not (null? clss))
-        (begin
-          (for-each (lambda (cls)
-                      (label-class cx env cls))
-                    clss)
-          (synthesize-upcast-class-to-anyref cx env)
-          (synthesize-resolve-virtual cx env)
-          (for-each (lambda (cls)
-                      (synthesize-class-descriptor cx env cls)
-                      (synthesize-new-class cx env cls)
-                      (synthesize-upcast-to-class cx env cls)
-                      (synthesize-test-class-is-class cx env cls)
-                      (synthesize-test-anyref-is-class cx env cls)
-                      (synthesize-downcast-class-to-class cx env cls)
-                      (synthesize-downcast-anyref-to-class cx env cls)
-                      (for-each (lambda (f)
-                                  (synthesize-class-field-ops cx env cls f))
-                                (class.fields cls)))
-                    clss)))))
+(define (synthesize-class-descriptors cx env)
+  (for-each (lambda (cls)
+              (synthesize-class-descriptor cx env cls))
+            (classes env)))
 
 (define (synthesize-class-descriptor cx env cls)
   (let ((name   (symbol->string (class.name cls)))
@@ -2692,61 +2680,78 @@ For detailed usage instructions see MANUAL.md.
                            (comma-separate (map number->string (class-dispatch-map cls)))))
             (classes env)))
 
-(define (synthesize-new-class cx env cls)
-  (let* ((name     (symbol->string (class.name cls)))
+(define (synthesize-resolve-virtual cx env name)
+  (js-lib cx env name `(,*object-type* ,*i32-type*) *i32-type*
+          "function(obj,vid) { return obj._desc_.vtbl[vid] }"))
+
+(define (render-resolve-virtual cx env receiver-expr vid)
+  (let ((func (lookup-synthesized-func cx env '_resolve_virtual synthesize-resolve-virtual)))
+    `(call ,(func.id func) ,receiver-expr ,vid)))
+
+(define (synthesize-new-class cx env name cls)
+  (let* ((cls-name (class.name cls))
          (fields   (class.fields cls))
-         (new-name (splice "_new_" name))
          (fs       (map (lambda (f) (symbol->string (car f))) fields))
          (formals  (comma-separate fs))
-         (as       (cons (string-append "_desc_:self.desc." name) fs))
+         (as       (cons (string-append "_desc_:self.desc." (symbol->string cls-name)) fs))
          (actuals  (comma-separate as)))
-      (js-lib cx env new-name (map cadr fields) (class.type cls)
-              "function (~a) { return new self.types.~a({~a}) }" formals name actuals)))
+      (js-lib cx env name (map cadr fields) (class.type cls)
+              "function (~a) { return new self.types.~a({~a}) }" formals cls-name actuals)))
 
-(define (render-new-class env cls args)
-  (let ((name (splice "_new_" (class.name cls))))
-    `(call ,(func.id (lookup-func env name)) ,@(map car args))))
+(define (render-new-class cx env cls args)
+  (let ((func (lookup-synthesized-func cx env
+                                       (splice "_new_" (class.name cls))
+                                       synthesize-new-class
+                                       cls)))
+    `(call ,(func.id func) ,@(map car args))))
 
 ;; The compiler shall only insert an upcast operation if the expression being
 ;; widened is known to be of a proper subtype of the target type.  In this case
 ;; the operation is a no-op but once the wasm type system goes beyond having
 ;; just anyref we may need an explicit upcast here.
 
-(define (synthesize-upcast-class-to-anyref cx env)
-  (js-lib cx env '_upcast_class_to_anyref `(,*object-type*) *anyref-type* "function (p) { return p }"))
+(define (synthesize-upcast-class-to-anyref cx env name)
+  (js-lib cx env name `(,*object-type*) *anyref-type* "function (p) { return p }"))
 
-(define (synthesize-upcast-to-class cx env cls)
-  (js-lib cx env (splice "_upcast_class_to_" (class.name cls)) `(,*object-type*) (class.type cls)
-          "function (p) { return p }"))
+(define (render-upcast-class-to-anyref cx env expr)
+  (let ((func (lookup-synthesized-func cx env '_upcast_class_to_anyref synthesize-upcast-class-to-anyref)))
+    `(call ,(func.id func) ,expr)))
 
-(define (render-upcast-class-to-class env desired expr)
-  (let ((name (splice "_upcast_class_to_" (class.name desired))))
-    `(call ,(func.id (lookup-func env name)) ,expr)))
+(define (synthesize-upcast-to-class cx env name cls)
+  (js-lib cx env name `(,*object-type*) (class.type cls) "function (p) { return p }"))
 
-(define (render-upcast-class-to-anyref env expr)
-  `(call ,(func.id (lookup-func env '_upcast_class_to_anyref)) ,expr))
+(define (render-upcast-class-to-class cx env desired expr)
+  (let ((func (lookup-synthesized-func cx env
+                                       (splice "_upcast_class_to_" (class.name desired))
+                                       synthesize-upcast-to-class
+                                       desired)))
+    `(call ,(func.id func) ,expr)))
 
-(define (synthesize-test-class-is-class cx env cls)
-  (js-lib cx env (splice "_class_is_" (class.name cls)) `(,*object-type*) *i32-type*
-          "function (p) { return self.lib._test(~a, p._desc_.ids) }"
-          (class.host cls)))
+(define (synthesize-test-class-is-class cx env name cls)
+  (js-lib cx env name `(,*object-type*) *i32-type*
+          "function (p) { return self.lib._test(~a, p._desc_.ids) }" (class.host cls)))
 
-(define (render-class-is-class env cls val)
-  (let ((name (splice "_class_is_" (class.name cls))))
-    `(call ,(func.id (lookup-func env name)) ,val)))
+(define (render-class-is-class cx env cls val)
+  (let ((func (lookup-synthesized-func cx env
+                                       (splice "_class_is_" (class.name cls))
+                                       synthesize-test-class-is-class
+                                       cls)))
+    `(call ,(func.id func) ,val)))
 
-(define (synthesize-test-anyref-is-class cx env cls)
-  (js-lib cx env (splice "_anyref_is_" (class.name cls)) `(,*anyref-type*) *i32-type*
+(define (synthesize-test-anyref-is-class cx env name cls)
+  (js-lib cx env name `(,*anyref-type*) *i32-type*
           "function (p) { return p !== null && typeof p._desc_ === 'object' && self.lib._test(~a, p._desc_.ids) }"
           (class.host cls)))
 
-(define (render-anyref-is-class env cls val)
-  (let ((name (splice "_anyref_is_" (class.name cls))))
-    `(call ,(func.id (lookup-func env name)) ,val)))
+(define (render-anyref-is-class cx env cls val)
+  (let ((func (lookup-synthesized-func cx env
+                                       (splice "_anyref_is_" (class.name cls))
+                                       synthesize-test-anyref-is-class
+                                       cls)))
+    `(call ,(func.id func) ,val)))
 
-(define (synthesize-downcast-class-to-class cx env cls)
-  (js-lib cx env (splice "_downcast_class_to_" (class.name cls))
-          `(,*object-type*) (class.type cls)
+(define (synthesize-downcast-class-to-class cx env name cls)
+  (js-lib cx env name `(,*object-type*) (class.type cls)
           "
 function (p) {
   if (!self.lib._test(~a, p._desc_.ids))
@@ -2756,13 +2761,15 @@ function (p) {
           (class.host cls)
           (class.name cls)))
 
-(define (render-downcast-class-to-class env cls val)
-  (let ((name (splice "_downcast_class_to_" (class.name cls))))
-    `(call ,(func.id (lookup-func env name)) ,val)))
+(define (render-downcast-class-to-class cx env cls val)
+  (let ((func (lookup-synthesized-func cx env
+                                       (splice "_downcast_class_to_" (class.name cls))
+                                       synthesize-downcast-class-to-class
+                                       cls)))
+    `(call ,(func.id func) ,val)))
 
-(define (synthesize-downcast-anyref-to-class cx env cls)
-  (js-lib cx env (splice "_downcast_anyref_to_" (class.name cls))
-          `(,*anyref-type*) (class.type cls)
+(define (synthesize-downcast-anyref-to-class cx env name cls)
+  (js-lib cx env name `(,*anyref-type*) (class.type cls)
           "
 function (p) {
   if (!(p !== null && typeof p._desc_ === 'object' && self.lib._test(~a, p._desc_.ids)))
@@ -2772,58 +2779,45 @@ function (p) {
           (class.host cls)
           (class.name cls)))
 
-(define (render-downcast-anyref-to-class env cls val)
-  (let ((name (splice "_downcast_anyref_to_" (class.name cls))))
-    `(call ,(func.id (lookup-func env name)) ,val)))
+(define (render-downcast-anyref-to-class cx env cls val)
+  (let ((func (lookup-synthesized-func cx env
+                                       (splice "_downcast_anyref_to_" (class.name cls))
+                                       synthesize-downcast-anyref-to-class
+                                       cls)))
+    `(call ,(func.id func) ,val)))
 
 ;; TODO: here we assume JS syntax for the field-name.  We can work around it for
 ;; the field access but not for the function name.  We need some kind of
 ;; mangling.
 
-(define (synthesize-class-field-ops cx env cls f)
-  (let ((field-name (car f))
-        (field-type (cadr f)))
-    (js-lib cx env (splice "_get_" (class.name cls) "_" field-name)
-            `(,(class.type cls)) field-type
-            "function (p) { return p.~a }" field-name)
+(define (synthesize-field-access cx env name cls field-name)
+  (let* ((field      (assq field-name (class.fields cls)))
+         (field-type (cadr field)))
+    (js-lib cx env name `(,(class.type cls)) field-type "function (p) { return p.~a }" field-name)))
 
-    (js-lib cx env (splice "_set_" (class.name cls) "_" field-name)
-            `(,(class.type cls) ,field-type) *void-type*
-            "function (p, v) { p.~a = v }" field-name)))
+(define (render-field-access cx env cls field-name base-expr)
+  (let ((func (lookup-synthesized-func cx env
+                                       (splice "_get_" (class.name cls) "_" field-name)
+                                       synthesize-field-access
+                                       cls field-name)))
+    `(call ,(func.id func) ,base-expr)))
 
-(define (render-field-access env cls field-name base-expr)
-  (let ((name (splice "_get_" (class.name cls) "_" field-name)))
-    `(call ,(func.id (lookup-func env name)) ,base-expr)))
+(define (synthesize-field-update cx env name cls field-name)
+  (let* ((field      (assq field-name (class.fields cls)))
+         (field-type (cadr field)))
+    (js-lib cx env name `(,(class.type cls) ,field-type) *void-type* "function (p, v) { p.~a = v }" field-name)))
 
-(define (render-field-update env cls field-name base-expr val-expr)
-  (let ((name (splice "_set_" (class.name cls) "_" field-name)))
-    `(call ,(func.id (lookup-func env name)) ,base-expr ,val-expr)))
+(define (render-field-update cx env cls field-name base-expr val-expr)
+  (let ((func (lookup-synthesized-func cx env
+                                       (splice "_set_" (class.name cls) "_" field-name)
+                                       synthesize-field-update
+                                       cls field-name)))
+    `(call ,(func.id func) ,base-expr ,val-expr)))
 
-(define (synthesize-resolve-virtual cx env)
-  (js-lib cx env '_resolve_virtual `(,*object-type* ,*i32-type*) *i32-type*
-          "function(obj,vid) { return obj._desc_.vtbl[vid] }"))
-
-(define (render-resolve-virtual env receiver-expr vid)
-  `(call ,(func.id (lookup-func env '_resolve_virtual)) ,receiver-expr ,vid))
-
-(define (render-class-null env cls)
+(define (render-class-null cx env cls)
   `(ref.null anyref))
 
 ;; Strings and string literals
-
-(define (synthesize-string-ops cx env)
-  (synthesize-new-string cx env)
-  (synthesize-string-literal cx env)
-  (synthesize-string-length cx env)
-  (synthesize-string-ref cx env)
-  (synthesize-string-append cx env)
-  (synthesize-substring cx env)
-  (synthesize-string-compare cx env)
-  (synthesize-vector->string cx env)
-  (synthesize-string->vector cx env)
-  (synthesize-anyref-is-string cx env)
-  (synthesize-upcast-string-to-anyref cx env)
-  (synthesize-downcast-anyref-to-string cx env))
 
 (define (emit-string-literals cx env)
   (let ((out (support.strings (cx.support cx))))
@@ -2832,15 +2826,15 @@ function (p) {
                 (display ",\n" out))
             (map car (reverse (cx.strings cx))))))
 
-(define (synthesize-string-literal cx env)
-  (js-lib cx env '_string_literal `(,*i32-type*) *string-type*
-          "function (n) { return self.strings[n] }"))
+(define (synthesize-string-literal cx env name)
+  (js-lib cx env name `(,*i32-type*) *string-type* "function (n) { return self.strings[n] }"))
 
-(define (render-string-literal env n)
-  `(call ,(func.id (lookup-func env '_string_literal)) (i32.const ,n)))
+(define (render-string-literal cx env n)
+  (let ((func (lookup-synthesized-func cx env '_string_literal synthesize-string-literal)))
+    `(call ,(func.id func) (i32.const ,n))))
 
-(define (synthesize-new-string cx env)
-  (js-lib cx env '_new_string (make-list 11 *i32-type*) *string-type*
+(define (synthesize-new-string-and-string-10chars cx env name name2)
+  (js-lib cx env name (make-list 11 *i32-type*) *string-type*
           "
 function (n,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
   self.buffer.push(x1,x2,x3,x4,x5,x6,x7,x8,x9,x10);
@@ -2849,15 +2843,15 @@ function (n,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
   return s;
 }")
 
-  (js-lib cx env '_string_10chars (make-list 10 *i32-type*) *void-type*
+  (js-lib cx env name2 (make-list 10 *i32-type*) *void-type*
               "
 function (x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
   self.buffer.push(x1,x2,x3,x4,x5,x6,x7,x8,x9,x10);
 }"))
 
-(define (render-new-string env args)
-  (let ((new_string    (lookup-func env '_new_string))
-        (string_10chars (lookup-func env '_string_10chars)))
+(define (render-new-string cx env args)
+  (let* ((new_string     (lookup-synthesized-func cx env '_new_string synthesize-new-string-and-string-10chars '_string_10chars))
+         (string_10chars (lookup-func env '_string_10chars)))
     (let loop ((n (length args)) (args args) (code '()))
       (if (<= n 10)
           (let ((args (append args (make-list (- 10 n) '(i32.const 0)))))
@@ -2869,15 +2863,15 @@ function (x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
                 (cons `(call ,(func.id string_10chars) ,@(list-head args 10))
                       code))))))
 
-(define (synthesize-string-length cx env)
-  (js-lib cx env '_string_length `(,*string-type*) *i32-type*
-          "function (p) { return p.length }"))
+(define (synthesize-string-length cx env name)
+  (js-lib cx env name `(,*string-type*) *i32-type* "function (p) { return p.length }"))
 
-(define (render-string-length env expr)
-  `(call ,(func.id (lookup-func env '_string_length)) ,expr))
+(define (render-string-length cx env expr)
+  (let ((func (lookup-synthesized-func cx env '_string_length synthesize-string-length)))
+    `(call ,(func.id func) ,expr)))
 
-(define (synthesize-string-ref cx env)
-  (js-lib cx env '_string_ref `(,*string-type* ,*i32-type*) *i32-type*
+(define (synthesize-string-ref cx env name)
+  (js-lib cx env name `(,*string-type* ,*i32-type*) *i32-type*
           "
 function (str,idx) {
   if ((idx >>> 0) >= str.length)
@@ -2885,18 +2879,19 @@ function (str,idx) {
   return str.charCodeAt(idx);
 }"))
 
-(define (render-string-ref env e0 e1)
-  `(call ,(func.id (lookup-func env '_string_ref)) ,e0 ,e1))
+(define (render-string-ref cx env e0 e1)
+  (let ((func (lookup-synthesized-func cx env '_string_ref synthesize-string-ref)))
+    `(call ,(func.id func) ,e0 ,e1)))
 
-(define (synthesize-string-append cx env)
-  (js-lib cx env '_string_append `(,*string-type* ,*string-type*) *string-type*
-          "function (p,q) { return p + q }"))
+(define (synthesize-string-append cx env name)
+  (js-lib cx env name `(,*string-type* ,*string-type*) *string-type* "function (p,q) { return p + q }"))
 
-(define (render-string-append env e0 e1)
-  `(call ,(func.id (lookup-func env '_string_append)) ,e0 ,e1))
+(define (render-string-append cx env e0 e1)
+  (let ((func (lookup-synthesized-func cx env '_string_append synthesize-string-append)))
+    `(call ,(func.id func) ,e0 ,e1)))
 
-(define (synthesize-substring cx env)
-  (js-lib cx env '_substring `(,*string-type* ,*i32-type* ,*i32-type*) *string-type*
+(define (synthesize-substring cx env name)
+  (js-lib cx env name `(,*string-type* ,*i32-type* ,*i32-type*) *string-type*
           "
 function (str,start,end) {
   if ((start >>> 0) >= str.length || (end >>> 0) > str.length)
@@ -2904,11 +2899,12 @@ function (str,start,end) {
   return str.substring(start,end);
 }"))
 
-(define (render-substring env e0 e1 e2)
-  `(call ,(func.id (lookup-func env '_substring)) ,e0 ,e1 ,e2))
+(define (render-substring cx env e0 e1 e2)
+  (let ((func (lookup-synthesized-func cx env '_substring synthesize-substring)))
+    `(call ,(func.id func) ,e0 ,e1 ,e2)))
 
-(define (synthesize-string-compare cx env)
-  (js-lib cx env '_string_compare `(,*string-type* ,*string-type*) *i32-type*
+(define (synthesize-string-compare cx env name)
+  (js-lib cx env name `(,*string-type* ,*string-type*) *i32-type*
           "
 function (p,q) {
   let a = p.length;
@@ -2922,19 +2918,21 @@ function (p,q) {
   return a - b;
 }"))
 
-(define (render-string-compare env e0 e1)
-  `(call ,(func.id (lookup-func env '_string_compare)) ,e0 ,e1))
+(define (render-string-compare cx env e0 e1)
+  (let ((func (lookup-synthesized-func cx env '_string_compare synthesize-string-compare)))
+    `(call ,(func.id func) ,e0 ,e1)))
 
-(define (synthesize-vector->string cx env)
-  (js-lib cx env '_vector_to_string `(,(make-vector-type cx env *i32-type*)) *string-type*
+(define (synthesize-vector->string cx env name)
+  (js-lib cx env name `(,(make-vector-type cx env *i32-type*)) *string-type*
           "function (x) { return String.fromCharCode.apply(null, x) }"))
 
-(define (render-vector->string env e)
-  `(call ,(func.id (lookup-func env '_vector_to_string)) ,e))
+(define (render-vector->string cx env e)
+  (let ((func (lookup-synthesized-func cx env '_vector_to_string synthesize-vector->string)))
+    `(call ,(func.id func) ,e)))
 
-(define (synthesize-string->vector cx env)
+(define (synthesize-string->vector cx env name)
   (let ((vt (make-vector-type cx env *i32-type*)))
-    (js-lib cx env '_string_to_vector `(,*string-type*) vt
+    (js-lib cx env name `(,*string-type*) vt
             "
 function (s) {
   let len = x.length;
@@ -2945,23 +2943,26 @@ function (s) {
   return a;
 }" (type.vector-id vt))))
 
-(define (render-string->vector env e)
-  `(call ,(func.id (lookup-func env '_string_to_vector)) ,e))
+(define (render-string->vector cx env e)
+  (let ((func (lookup-synthesized-func cx env '_string_to_vector synthesize-string->vector)))
+    `(call ,(func.id func) ,e)))
 
-(define (synthesize-upcast-string-to-anyref cx env)
-  (js-lib cx env '_upcast_string_to_anyref `(,*string-type*) *anyref-type* "function (p) { return p }"))
+(define (synthesize-upcast-string-to-anyref cx env name)
+  (js-lib cx env name `(,*string-type*) *anyref-type* "function (p) { return p }"))
 
-(define (render-upcast-string-to-anyref env expr)
-  `(call ,(func.id (lookup-func env '_upcast_string_to_anyref)) ,expr))
+(define (render-upcast-string-to-anyref cx env expr)
+  (let ((func (lookup-synthesized-func cx env '_upcast_string_to_anyref synthesize-upcast-string-to-anyref)))
+    `(call ,(func.id func) ,expr)))
 
-(define (synthesize-anyref-is-string cx env)
+(define (synthesize-anyref-is-string cx env name)
   (js-lib cx env '_anyref_is_string `(,*anyref-type*) *i32-type* "function (p) { return p instanceof String }"))
 
-(define (render-anyref-is-string env val)
-  `(call ,(func.id (lookup-func env '_anyref_is_string)) ,val))
+(define (render-anyref-is-string cx env val)
+  (let ((func (lookup-synthesized-func cx env '_anyref_is_string synthesize-anyref-is-string)))
+  `(call ,(func.id func) ,val)))
 
-(define (synthesize-downcast-anyref-to-string cx env)
-  (js-lib cx env '_downcast_anyref_to_string `(,*anyref-type*) *string-type*
+(define (synthesize-downcast-anyref-to-string cx env name)
+  (js-lib cx env name `(,*anyref-type*) *string-type*
           "
 function (p) {
   if (!(p instanceof String))
@@ -2969,29 +2970,20 @@ function (p) {
   return p;
 }"))
 
-(define (render-downcast-anyref-to-string env val)
-  `(call ,(func.id (lookup-func env '_downcast_anyref_to_string)) ,val))
+(define (render-downcast-anyref-to-string cx env val)
+  (let ((func (lookup-synthesized-func cx env '_downcast_anyref_to_string synthesize-downcast-anyref-to-string)))
+    `(call ,(func.id func) ,val)))
 
 ;; Vectors
 ;;
 ;; Some of these are a little dodgy because they use anyref as the parameter,
 ;; yet that implies some kind of upcast.
 
-(define (synthesize-vector-ops cx env element-type)
-  (synthesize-new-vector cx env element-type)
-  (synthesize-vector-length cx env element-type)
-  (synthesize-vector-ref cx env element-type)
-  (synthesize-vector-set! cx env element-type)
-  (synthesize-upcast-vector-to-anyref cx env element-type)
-  (synthesize-anyref-is-vector cx env element-type)
-  (synthesize-downcast-anyref-to-vector cx env element-type))
-
-(define (render-vector-null env element-type)
+(define (render-vector-null cx env element-type)
   `(ref.null anyref))
 
-(define (synthesize-new-vector cx env element-type)
-  (let ((name (splice "_new_vector_" (render-element-type element-type)))
-        (vt   (type.vector-of element-type)))
+(define (synthesize-new-vector cx env name element-type)
+  (let ((vt   (type.vector-of element-type)))
     (js-lib cx env name `(,*i32-type* ,element-type) vt
             "
 function (n,init) {
@@ -3002,70 +2994,74 @@ function (n,init) {
   return a;
 }" (type.vector-id vt))))
 
-(define (render-new-vector env element-type len init)
-  (let ((name (splice "_new_vector_" (render-element-type element-type))))
-    `(call ,(func.id (lookup-func env name)) ,len ,init)))
+(define (render-new-vector cx env element-type len init)
+  (let ((func (lookup-synthesized-func cx env (splice "_new_vector_" (render-element-type element-type))
+                                       synthesize-new-vector
+                                       element-type)))
+    `(call ,(func.id func) ,len ,init)))
 
-(define (synthesize-vector-length cx env element-type)
-  (let ((name (splice "_vector_length_" (render-element-type element-type))))
-    (js-lib cx env name `(,*anyref-type*) *i32-type*
-            "function (p) { return p.length }")))
+(define (synthesize-vector-length cx env name element-type)
+  (js-lib cx env name `(,*anyref-type*) *i32-type* "function (p) { return p.length }"))
 
-(define (render-vector-length env expr element-type)
-  (let ((name (splice "_vector_length_" (render-element-type element-type))))
-    `(call ,(func.id (lookup-func env name)) ,expr)))
+(define (render-vector-length cx env expr element-type)
+  (let ((func (lookup-synthesized-func cx env (splice "_vector_length_" (render-element-type element-type))
+                                       synthesize-vector-length
+                                       element-type)))
+    `(call ,(func.id func) ,expr)))
 
-(define (synthesize-vector-ref cx env element-type)
-  (let ((name (splice "_vector_ref_" (render-element-type element-type))))
-    (js-lib cx env name `(,*anyref-type* ,*i32-type*) element-type
+(define (synthesize-vector-ref cx env name element-type)
+  (js-lib cx env name `(,*anyref-type* ,*i32-type*) element-type
             "
 function (p,i) {
   if ((i >>> 0) >= p.length)
     throw new RangeError('Out of range: ' + i + ' for ' + p.length);
   return p[i];
-}")))
+}"))
 
-(define (render-vector-ref env e0 e1 element-type)
-  (let ((name (splice "_vector_ref_" (render-element-type element-type))))
-    `(call ,(func.id (lookup-func env name)) ,e0 ,e1)))
+(define (render-vector-ref cx env e0 e1 element-type)
+  (let ((func (lookup-synthesized-func cx env (splice "_vector_ref_" (render-element-type element-type))
+                                       synthesize-vector-ref
+                                       element-type)))
+    `(call ,(func.id func) ,e0 ,e1)))
 
-(define (synthesize-vector-set! cx env element-type)
-  (let ((name (splice "_vector_set_" (render-element-type element-type))))
-    (js-lib cx env name `(,*anyref-type* ,*i32-type* ,element-type) *void-type*
+(define (synthesize-vector-set! cx env name element-type)
+  (js-lib cx env name `(,*anyref-type* ,*i32-type* ,element-type) *void-type*
             "
 function (p,i,v) {
   if ((i >>> 0) >= p.length)
     throw new RangeError('Out of range: ' + i + ' for ' + p.length);
   p[i] = v;
-}")))
+}"))
 
-(define (render-vector-set! env e0 e1 e2 element-type)
-  (let ((name (splice "_vector_set_" (render-element-type element-type))))
-    `(call ,(func.id (lookup-func env name)) ,e0 ,e1 ,e2)))
+(define (render-vector-set! cx env e0 e1 e2 element-type)
+  (let ((func (lookup-synthesized-func cx env (splice "_vector_set_" (render-element-type element-type))
+                                       synthesize-vector-set!
+                                       element-type)))
+    `(call ,(func.id func) ,e0 ,e1 ,e2)))
 
-(define (synthesize-upcast-vector-to-anyref cx env element-type)
-  (let ((name (splice "_upcast_vector_" (render-element-type element-type) "_to_anyref")))
-    (js-lib cx env name `(,*anyref-type*) *anyref-type*
-            "function (p) { return p }")))
+(define (synthesize-upcast-vector-to-anyref cx env name element-type)
+  (js-lib cx env name `(,*anyref-type*) *anyref-type* "function (p) { return p }"))
 
-(define (render-upcast-vector-to-anyref env element-type expr)
-  (let ((name (splice "_upcast_vector_" (render-element-type element-type) "_to_anyref")))
-    `(call ,(func.id (lookup-func env name)) ,expr)))
+(define (render-upcast-vector-to-anyref cx env element-type expr)
+  (let ((func (lookup-synthesized-func cx env (splice "_upcast_vector_" (render-element-type element-type) "_to_anyref")
+                                       synthesize-upcast-vector-to-anyref
+                                       element-type)))
+    `(call ,(func.id func) ,expr)))
 
-(define (synthesize-anyref-is-vector cx env element-type)
-  (let ((name (splice "_anyref_is_vector_" (render-element-type element-type)))
-        (vt   (type.vector-of element-type)))
+(define (synthesize-anyref-is-vector cx env name element-type)
+  (let ((vt (type.vector-of element-type)))
     (js-lib cx env name `(,*anyref-type*) *i32-type*
             "function (p) { return Array.isArray(p) && p._tag===~a }"
             (type.vector-id vt))))
 
-(define (render-anyref-is-vector env expr element-type)
-  (let ((name (splice "_anyref_is_vector_" (render-element-type element-type))))
-    `(call ,(func.id (lookup-func env name)) ,expr)))
+(define (render-anyref-is-vector cx env expr element-type)
+  (let ((func (lookup-synthesized-func cx env (splice "_anyref_is_vector_" (render-element-type element-type))
+                                       synthesize-anyref-is-vector
+                                       element-type)))
+    `(call ,(func.id func) ,expr)))
 
-(define (synthesize-downcast-anyref-to-vector cx env element-type)
-  (let ((name (splice "_downcast_anyref_to_vector_" (render-element-type element-type)))
-        (vt   (type.vector-of element-type)))
+(define (synthesize-downcast-anyref-to-vector cx env name element-type)
+  (let ((vt (type.vector-of element-type)))
     (js-lib cx env name `(,*anyref-type*) vt
           "
 function (p) {
@@ -3074,9 +3070,11 @@ function (p) {
   return p;
 }" (type.vector-id vt))))
 
-(define (render-downcast-anyref-to-vector env expr element-type)
-  (let ((name (splice "_downcast_anyref_to_vector_" (render-element-type element-type))))
-    `(call ,(func.id (lookup-func env name)) ,expr)))
+(define (render-downcast-anyref-to-vector cx env expr element-type)
+  (let ((func (lookup-synthesized-func cx env (splice "_downcast_anyref_to_vector_" (render-element-type element-type))
+                                       synthesize-downcast-anyref-to-vector
+                                       element-type)))
+    `(call ,(func.id func) ,expr)))
 
 (define (render-element-type element-type)
   (cond ((vector-type? element-type)
