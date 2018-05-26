@@ -39,13 +39,6 @@ compile: function () { return fetch('snake.wasm').then(WebAssembly.compileStream
  buffer:[],
  lib:
  {
- '_test':
- function(x, ys) {
-   let i=ys.length;
-   while (i-- > 0)
-     if (ys[i] === x) return true;
-   return false;
- },
 '_new_vector_Tile':
 function (n,init) {
   let a=new Array(n);
@@ -82,6 +75,14 @@ function (p,i,v) {
 '_upcast_class_to_anyref':function (p) { return p },
 '_new_Body':function (element,younger_y,younger_x) { return new self.types.Body({_desc_:self.desc.Body,element,younger_y,younger_x}) },
 '_new_Food':function (element) { return new self.types.Food({_desc_:self.desc.Food,element}) },
+'_test':
+ function(x, ys) {
+   let i=ys.length;
+   while (i-- > 0)
+     if (ys[i] === x) return true;
+   return false;
+ }
+,
 '_downcast_class_to_Body':
 function (p) {
   if (!self.lib._test(6, p._desc_.ids))

@@ -2685,7 +2685,20 @@ For detailed usage instructions see MANUAL.md.
                            (comma-separate (map number->string (class-dispatch-map cls)))))
             (classes env)))
 
-(define (class-downcast-test id cls)
+(define (synthesize-downcast-test cx env name)
+  ;; The signature is immaterial, this is only called from JS
+  (js-lib cx env name '() *void-type*
+          "
+ function(x, ys) {
+   let i=ys.length;
+   while (i-- > 0)
+     if (ys[i] === x) return true;
+   return false;
+ }
+"))
+
+(define (class-downcast-test cx env id cls)
+  (lookup-synthesized-func cx env '_test synthesize-downcast-test)
   (format #f "self.lib._test(~a, ~a._desc_.ids)" (class.host cls) id))
 
 (define (synthesize-resolve-virtual cx env name)
@@ -2737,7 +2750,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define (synthesize-test-class-is-class cx env name cls)
   (js-lib cx env name `(,*object-type*) *i32-type*
-          "function (p) { return ~a }" (class-downcast-test 'p cls)))
+          "function (p) { return ~a }" (class-downcast-test cx env 'p cls)))
 
 (define (render-class-is-class cx env cls val)
   (let ((func (lookup-synthesized-func cx env
@@ -2749,7 +2762,7 @@ For detailed usage instructions see MANUAL.md.
 (define (synthesize-test-anyref-is-class cx env name cls)
   (js-lib cx env name `(,*anyref-type*) *i32-type*
           "function (p) { return p !== null && typeof p._desc_ === 'object' && ~a }"
-          (class-downcast-test 'p cls)))
+          (class-downcast-test cx env 'p cls)))
 
 (define (render-anyref-is-class cx env cls val)
   (let ((func (lookup-synthesized-func cx env
@@ -2766,7 +2779,7 @@ function (p) {
     throw new Error('Failed to narrow to ~a' + p);
   return p;
 }"
-          (class-downcast-test 'p cls)
+          (class-downcast-test cx env 'p cls)
           (class.name cls)))
 
 (define (render-downcast-class-to-class cx env cls val)
@@ -2784,7 +2797,7 @@ function (p) {
     throw new Error('Failed to narrow to ~a' + p);
   return p;
 }"
-          (class-downcast-test 'p cls)
+          (class-downcast-test cx env 'p cls)
           (class.name cls)))
 
 (define (render-downcast-anyref-to-class cx env cls val)
@@ -3142,13 +3155,6 @@ compile: function () { return Promise.resolve(self._module) },
  buffer:[],
  lib:
  {
- '_test':
- function(x, ys) {
-   let i=ys.length;
-   while (i-- > 0)
-     if (ys[i] === x) return true;
-   return false;
- },
 "
 (get-output-string (support.lib support))
 "}
