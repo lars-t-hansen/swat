@@ -2685,6 +2685,9 @@ For detailed usage instructions see MANUAL.md.
                            (comma-separate (map number->string (class-dispatch-map cls)))))
             (classes env)))
 
+(define (class-downcast-test id cls)
+  (format #f "self.lib._test(~a, ~a._desc_.ids)" (class.host cls) id))
+
 (define (synthesize-resolve-virtual cx env name)
   (js-lib cx env name `(,*object-type* ,*i32-type*) *i32-type*
           "function(obj,vid) { return obj._desc_.vtbl[vid] }"))
@@ -2734,7 +2737,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define (synthesize-test-class-is-class cx env name cls)
   (js-lib cx env name `(,*object-type*) *i32-type*
-          "function (p) { return self.lib._test(~a, p._desc_.ids) }" (class.host cls)))
+          "function (p) { return ~a }" (class-downcast-test 'p cls)))
 
 (define (render-class-is-class cx env cls val)
   (let ((func (lookup-synthesized-func cx env
@@ -2745,8 +2748,8 @@ For detailed usage instructions see MANUAL.md.
 
 (define (synthesize-test-anyref-is-class cx env name cls)
   (js-lib cx env name `(,*anyref-type*) *i32-type*
-          "function (p) { return p !== null && typeof p._desc_ === 'object' && self.lib._test(~a, p._desc_.ids) }"
-          (class.host cls)))
+          "function (p) { return p !== null && typeof p._desc_ === 'object' && ~a }"
+          (class-downcast-test 'p cls)))
 
 (define (render-anyref-is-class cx env cls val)
   (let ((func (lookup-synthesized-func cx env
@@ -2759,11 +2762,11 @@ For detailed usage instructions see MANUAL.md.
   (js-lib cx env name `(,*object-type*) (class.type cls)
           "
 function (p) {
-  if (!self.lib._test(~a, p._desc_.ids))
+  if (!~a)
     throw new Error('Failed to narrow to ~a' + p);
   return p;
 }"
-          (class.host cls)
+          (class-downcast-test 'p cls)
           (class.name cls)))
 
 (define (render-downcast-class-to-class cx env cls val)
@@ -2777,11 +2780,11 @@ function (p) {
   (js-lib cx env name `(,*anyref-type*) (class.type cls)
           "
 function (p) {
-  if (!(p !== null && typeof p._desc_ === 'object' && self.lib._test(~a, p._desc_.ids)))
+  if (!(p !== null && typeof p._desc_ === 'object' && ~a))
     throw new Error('Failed to narrow to ~a' + p);
   return p;
 }"
-          (class.host cls)
+          (class-downcast-test 'p cls)
           (class.name cls)))
 
 (define (render-downcast-anyref-to-class cx env cls val)
@@ -3255,8 +3258,10 @@ putstr(Array.prototype.join.call(new Uint8Array(" module-bytes "), ' '));
 
 ;; Formatting
 
-(define (format out fmt . xs)
-  (let ((out (if (eq? out #t) (current-output-port) out))
+(define (format out0 fmt . xs)
+  (let ((out (cond ((eq? out0 #t) (current-output-port))
+                   ((eq? out0 #f) (open-output-string))
+                   (else          out0)))
         (len (string-length fmt)))
     (let loop ((i 0) (xs xs))
       (cond ((= i len))
@@ -3276,7 +3281,9 @@ putstr(Array.prototype.join.call(new Uint8Array(" module-bytes "), ' '));
                     (loop (+ i 1) xs))))
             (else
              (write-char (string-ref fmt i) out)
-             (loop (+ i 1) xs))))))
+             (loop (+ i 1) xs)))
+      (if (eq? #f out0)
+          (get-output-string out)))))
 
 (define (pretty-type x)
   (case (type.name x)
