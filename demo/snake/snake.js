@@ -6,13 +6,13 @@ compile: function () { return fetch('snake.wasm').then(WebAssembly.compileStream
 
  desc:
  {
-'Object':{id:1, bases:[1], vtable:[]},
-'Board':{id:2, bases:[2,1], vtable:[]},
-'Tile':{id:3, bases:[3,1], vtable:[0,0,0,0]},
-'Empty':{id:4, bases:[4,3,1], vtable:[0,1,0,2]},
-'Wall':{id:5, bases:[5,3,1], vtable:[1,0,0,5]},
-'Body':{id:6, bases:[6,3,1], vtable:[1,0,0,3]},
-'Food':{id:7, bases:[7,3,1], vtable:[0,0,1,4]},
+'Object':{/*id:1*/ bases:[1], vtable:[]},
+'Board':{/*id:2*/ bases:[2,1], vtable:[]},
+'Tile':{/*id:3*/ bases:[3,1], vtable:[0,0,0,0]},
+'Empty':{/*id:4*/ bases:[4,3,1], vtable:[0,1,0,2]},
+'Wall':{/*id:5*/ bases:[5,3,1], vtable:[1,0,0,5]},
+'Body':{/*id:6*/ bases:[6,3,1], vtable:[1,0,0,3]},
+'Food':{/*id:7*/ bases:[7,3,1], vtable:[0,0,1,4]},
 },
  types:
  {'Object':new TO.StructType({_desc_:TO.Object}),

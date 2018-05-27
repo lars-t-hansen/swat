@@ -2770,7 +2770,7 @@ For detailed usage instructions see MANUAL.md.
 
   (for-each (lambda (cls)
               (format-desc cx (class.name cls)
-                           "{id:~a, bases:[~a], vtable:[~a]}"
+                           "{/*id:~a*/ bases:[~a], vtable:[~a]}"
                            (class.host cls)
                            (comma-separate (map number->string (class-ids cls)))
                            (comma-separate (map number->string (class-dispatch-map cls)))))
