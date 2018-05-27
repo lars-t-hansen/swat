@@ -534,7 +534,7 @@ For detailed usage instructions see MANUAL.md.
 ;; Classes
 
 (define-record-type class
-  (%make-class% name base fields resolved? type host virtuals subclasses)
+  (%make-class% name base fields resolved? type host virtuals subclasses depth)
   class?
   (name       class.name)                              ; Class name as symbol
   (base       class.base       class.base-set!)        ; Base class object, or #f in Object
@@ -546,10 +546,12 @@ For detailed usage instructions see MANUAL.md.
                                                        ;   function when function is called on instance of
                                                        ;   this class as list ((vid function) ...), the
                                                        ;   function stores its own table index.
-  (subclasses class.subclasses class.subclasses-set!)) ; List of direct subclasses, unordered
+  (subclasses class.subclasses class.subclasses-set!)  ; List of direct subclasses, unordered
+  (depth      class.depth      class.depth-set!))      ; Depth in the hierarchy, Object==0
 
 (define (make-class name base fields)
-  (%make-class% name base fields #f #f #f '() '()))
+  (%make-class% name base fields
+                #|resolved?|# #f #|type|# #f #|host|# #f #|virtuals|# '() #|subclasses|# '() #|depth|# 0))
 
 (define (class=? a b)
   (eq? a b))
@@ -640,7 +642,10 @@ For detailed usage instructions see MANUAL.md.
             (let ((base (lookup-class env (class.base cls))))
               (resolve-class cx env base (cons cls forbidden))
               (class.base-set! cls base)
-              (class.subclasses-set! base (cons cls (class.subclasses base)))))
+              (class.subclasses-set! base (cons cls (class.subclasses base)))
+              (class.depth-set! cls (+ (class.depth base) 1)))
+            (begin
+              (assert (= (class.depth cls) 0))))
         (class.resolved-set! cls #t)
         (let ((base-fields (if (class.base cls)
                                (class.fields (class.base cls))
@@ -2649,6 +2654,92 @@ For detailed usage instructions see MANUAL.md.
                 (class.host-set! cls id)))
             (classes env)))
 
+;; Class descriptors, vtables, and hierarchies
+
+;; Current design:
+;;
+;; The class descriptor is a JS object that holds an ID (positive integer), a
+;; vtable (an Array), and a supertype table (an Array).  The descriptor is
+;; immutable and is stored in the environment object, as values in a hash that
+;; uses the class name as a key; the hash is stored in the 'desc' field of the
+;; environment object.
+;;
+;; Every object has a pointer field called _desc_ that points to the descriptor
+;; object for the class.  The JS-generated 'new' operation grabs the descriptor
+;; from the environment object every time a new object is created.
+;;
+;; The vtable for a class is a vector of nonnegative integers.  It is indexed by
+;; the virtual functions defined on the class - each virtual function has its
+;; own index from a global index space, and when it is invoked it uses its index
+;; to reference into the table to find another number, which is an index into
+;; the virtual function table in the module.  The vtable is sparse, but unused
+;; elements are filled with -1 (in slots where the virtual function in question
+;; is not defined on the type).  The virtual function table in the module is
+;; dense.
+;;
+;; The supertype table for a class is a vector of nonnegative integers.  It
+;; holds the class ids (which are positive integers) for all the classes that
+;; are supertypes of the class, including the id of the class itself.  To test
+;; whether a class of A is a subtype of B, where A is not known at all, we grab
+;; B's class ID and see if it appears in the list of A's supertypes.
+;;
+;;
+;; New design:
+;;
+;; We want:
+;; - the _desc_ field to be an integer field that can be stored by 'new' and
+;;   read directly
+;; - the 'desc' field in the environment object, and the hash it holds,
+;;   to go away
+;; - a faster subtype test
+;; - to use flat memory for the object descriptor
+;;
+;; We propose the following layout:
+;;
+;; - the _desc_ is a word address in flat memory
+;; - at that address is the class ID, as current, though not sure we need it
+;; - at greater addresses is the subtype test table, growing toward high addresses
+;; - at lower addresses is the vtable, growing toward low addresses.  It looks
+;;   like it currently does.  We don't need a length.
+;; - the first element of the subtype test table is its length
+;; - the length of the table corresponds to the depth of the class in its linear
+;;   inheritance chain (so, "Object"'s is length 1, and a subtype of Object has
+;;   length 2, etc)
+;; - the entry in slot i is the class ID of the ith class (so the only value
+;;   in the table of Object is Object; etc)
+;; - to test whether A is subtype of B, we must know B's depth, d(B)
+;; - we check whether A's table length is > d(B)
+;; - if so, we read element d(B) from A
+;; - if this is B, A is a subtype of B
+;;
+;; Initially we will keep the memory private, but we should expect to share
+;; memories eventually, and to allocate our data at a late-provided address,
+;; though a single block is OK until we have type import.
+;;
+;; Consider the set of classes Object, A <: Object, B <: A, C <: A, D <: C, E <: Object
+;;
+;; For Object, [Object]          d(Object) = 0
+;; For A,      [Object, A]       d(A) = 1
+;; For B,      [Object, A, B]    d(B) = 2
+;; For C,      [Object, A, C]    d(C) = 2
+;; For D,      [Object, A, C, D] d(D) = 3
+;; For E,      [Object, E]
+;;
+;; Is T <: A?  Let len(T) = 2
+;; Test 1: d(A) = 1 < len(T)
+;; Test 2: T.tbl[1] is id(C)   [so T is C or D, but only C fits because len(T)=2]
+;; So no.
+
+;; There are some additional complications.
+;;
+;; Currently we distinguish Object and its subtypes from other junk on the JS
+;; side when we downcast from anyref.  We'll basically need to split things
+;; here; downcast from anyref to Object (or test, ditto); then do things in
+;; wasm.  And if the downcast fails on the wasm side we must call out to JS
+;; again to trap.  I guess unreachable works.
+;;
+;; Search for class-downcast-test.
+
 (define (synthesize-class-descriptors cx env)
   (for-each (lambda (cls)
               (format-type cx (class.name cls)
@@ -2679,7 +2770,7 @@ For detailed usage instructions see MANUAL.md.
 
   (for-each (lambda (cls)
               (format-desc cx (class.name cls)
-                           "{id:~a, ids:[~a], vtbl:[~a]}"
+                           "{id:~a, bases:[~a], vtable:[~a]}"
                            (class.host cls)
                            (comma-separate (map number->string (class-ids cls)))
                            (comma-separate (map number->string (class-dispatch-map cls)))))
@@ -2697,17 +2788,25 @@ For detailed usage instructions see MANUAL.md.
  }
 "))
 
+;; Call out to read the _desc_ field; the fn takes anyref (really Object) and
+;; returns i32.
+
+;; (define (render-get-descriptor-addr cx env cls)
+;;   ...)
+
 (define (class-downcast-test cx env id cls)
   (lookup-synthesized-func cx env '_test synthesize-downcast-test)
-  (format #f "self.lib._test(~a, ~a._desc_.ids)" (class.host cls) id))
+  (format #f "self.lib._test(~a, ~a._desc_.bases)" (class.host cls) id))
 
 (define (synthesize-resolve-virtual cx env name)
   (js-lib cx env name `(,*object-type* ,*i32-type*) *i32-type*
-          "function(obj,vid) { return obj._desc_.vtbl[vid] }"))
+          "function(obj,vid) { return obj._desc_.vtable[vid] }"))
 
 (define (render-resolve-virtual cx env receiver-expr vid)
   (let ((func (lookup-synthesized-func cx env '_resolve_virtual synthesize-resolve-virtual)))
     `(call ,(func.id func) ,receiver-expr ,vid)))
+
+;; Class operations
 
 (define (synthesize-new-class cx env name cls)
   (let* ((cls-name (class.name cls))
