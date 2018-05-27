@@ -6,13 +6,13 @@ compile: function () { return fetch('snake.wasm').then(WebAssembly.compileStream
 
  desc:
  {
-'Object':{/*id:1*/ bases:[1], vtable:[]},
-'Board':{/*id:2*/ bases:[2,1], vtable:[]},
-'Tile':{/*id:3*/ bases:[3,1], vtable:[0,0,0,0]},
-'Empty':{/*id:4*/ bases:[4,3,1], vtable:[0,1,0,2]},
-'Wall':{/*id:5*/ bases:[5,3,1], vtable:[1,0,0,5]},
-'Body':{/*id:6*/ bases:[6,3,1], vtable:[1,0,0,3]},
-'Food':{/*id:7*/ bases:[7,3,1], vtable:[0,0,1,4]},
+'Object':{id_offset:0, table:[1,1,1]},
+'Board':{id_offset:0, table:[2,2,1,2]},
+'Tile':{id_offset:4, table:[0,0,0,0,3,2,1,3]},
+'Empty':{id_offset:4, table:[2,0,1,0,4,3,1,3,4]},
+'Wall':{id_offset:4, table:[5,0,0,1,5,3,1,3,5]},
+'Body':{id_offset:4, table:[3,0,0,1,6,3,1,3,6]},
+'Food':{id_offset:4, table:[4,1,0,0,7,3,1,3,7]},
 },
  types:
  {'Object':new TO.StructType({_desc_:TO.Object}),
@@ -68,7 +68,7 @@ function (p,i,v) {
 },
 '_get_Tile_element':function (p) { return p.element },
 '_set_Tile_element':function (p, v) { p.element = v },
-'_resolve_virtual':function(obj,vid) { return obj._desc_.vtable[vid] },
+'_resolve_virtual':function(obj,vid) { return obj._desc_.table[obj._desc_.id_offset - 1 - vid] },
 '_get_Wall_element':function (p) { return p.element },
 '_get_Wall_rendering':function (p) { return p.rendering },
 '_get_Board_height':function (p) { return p.height },
@@ -76,13 +76,13 @@ function (p,i,v) {
 '_new_Body':function (element,younger_y,younger_x) { return new self.types.Body({_desc_:self.desc.Body,element,younger_y,younger_x}) },
 '_new_Food':function (element) { return new self.types.Food({_desc_:self.desc.Food,element}) },
 '_test':
-function(rhs_depth, rhs_id, lhs_bases) {
-  return lhs_bases.length > rhs_depth && lhs_bases[rhs_depth] == rhs_id;
+function(rhs_depth, rhs_id, id_offset, lhs_table) {
+  return lhs_table[id_offset + 1] > rhs_depth && lhs_table[id_offset + 2 + rhs_depth] == rhs_id;
 }
 ,
 '_downcast_class_to_Body':
 function (p) {
-  if (!self.lib._test(2, 6, p._desc_.bases))
+  if (!self.lib._test(2, 6, p._desc_.id_offset, p._desc_.table))
     throw new Error('Failed to narrow to Body' + p);
   return p;
 },

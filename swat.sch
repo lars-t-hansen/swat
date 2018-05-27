@@ -2769,19 +2769,22 @@ For detailed usage instructions see MANUAL.md.
             (vector->list vtbl)))))
 
   (for-each (lambda (cls)
-              (format-desc cx (class.name cls)
-                           "{/*id:~a*/ bases:[~a], vtable:[~a]}"
-                           (class.host cls)
-                           (comma-separate (map number->string (class-ids cls)))
-                           (comma-separate (map number->string (class-dispatch-map cls)))))
+              (let ((virtuals (class-dispatch-map cls))
+                    (bases    (reverse (class-ids cls))))
+                (format-desc cx (class.name cls)
+                             "{id_offset:~a, table:[~a]}"
+                             (length virtuals)
+                             (comma-separate
+                              (map number->string
+                                   (append (reverse virtuals) (list (class.host cls) (length bases)) bases))))))
             (classes env)))
 
 (define (synthesize-downcast-test cx env name)
   ;; The signature is immaterial, this is only called from JS
   (js-lib cx env name '() *void-type*
           "
-function(rhs_depth, rhs_id, lhs_bases) {
-  return lhs_bases.length > rhs_depth && lhs_bases[rhs_depth] == rhs_id;
+function(rhs_depth, rhs_id, id_offset, lhs_table) {
+  return lhs_table[id_offset + 1] > rhs_depth && lhs_table[id_offset + 2 + rhs_depth] == rhs_id;
 }
 "))
 
@@ -2793,11 +2796,11 @@ function(rhs_depth, rhs_id, lhs_bases) {
 
 (define (class-downcast-test cx env lhs-ptr cls)
   (lookup-synthesized-func cx env '_test synthesize-downcast-test)
-  (format #f "self.lib._test(~a, ~a, ~a._desc_.bases)" (class.depth cls) (class.host cls) lhs-ptr))
+  (format #f "self.lib._test(~a, ~a, ~a._desc_.id_offset, ~a._desc_.table)" (class.depth cls) (class.host cls) lhs-ptr lhs-ptr))
 
 (define (synthesize-resolve-virtual cx env name)
   (js-lib cx env name `(,*object-type* ,*i32-type*) *i32-type*
-          "function(obj,vid) { return obj._desc_.vtable[vid] }"))
+          "function(obj,vid) { return obj._desc_.table[obj._desc_.id_offset - 1 - vid] }"))
 
 (define (render-resolve-virtual cx env receiver-expr vid)
   (let ((func (lookup-synthesized-func cx env '_resolve_virtual synthesize-resolve-virtual)))
