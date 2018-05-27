@@ -368,7 +368,8 @@ For detailed usage instructions see MANUAL.md.
 ;; Translation context.
 
 (define-record-type cx
-  (%make-cx% slots gensym-id vid support name table-index table-elements types strings string-id vector-id functions globals)
+  (%make-cx% slots gensym-id vid support name table-index table-elements types strings string-id vector-id
+             functions globals memory data)
   cx?
   (slots          cx.slots          cx.slots-set!)          ; Slots storage (during body expansion)
   (gensym-id      cx.gensym-id      cx.gensym-id-set!)      ; Gensym ID
@@ -376,7 +377,7 @@ For detailed usage instructions see MANUAL.md.
   (support        cx.support)                               ; Host support code (opaque structure)
   (name           cx.name)                                  ; Module name
   (table-index    cx.table-index    cx.table-index-set!)    ; Next table index
-  (table-elements cx.table-elements cx.table-elements-set!) ; List of table entries in reverse order
+  (table-elements cx.table-elements cx.table-elements-set!) ; List of table entries, reversed
   (types          cx.types          cx.types-set!)          ; Function types ((type . id) ...) where
                                                             ;   id is some gensym name and type is a
                                                             ;   rendered func type, we use ids to refer
@@ -386,10 +387,14 @@ For detailed usage instructions see MANUAL.md.
   (string-id      cx.string-id      cx.string-id-set!)      ; Next string literal id
   (vector-id      cx.vector-id      cx.vector-id-set!)      ; Next vector type id
   (functions      cx.functions      cx.functions-set!)      ; List of all functions in order encountered, reversed
-  (globals        cx.globals        cx.globals-set!))       ; List of all globals in order encountered, reversed
+  (globals        cx.globals        cx.globals-set!)        ; List of all globals in order encountered, reversed
+  (memory         cx.memory         cx.memory-set!)         ; Number of flat-memory bytes allocated so far
+  (data           cx.data           cx.data-set!))          ; List of i32 values for data, reversed
 
 (define (make-cx name support)
-  (%make-cx% #f 0 0 support name 0 '() '() '() 0 0 '() '()))
+  (%make-cx% #|slots|#  #f #|gensym-id|# 0 #|vid|# 0 support name #|table-index|# 0 #|table-elements|# '()
+             #|types|# '() #|strings|# '() #|string-id|# 0 #|vector-id|# 0 #|functions|# '() #|globals|# '()
+             #|memory|# 0 #|data|# '()))
 
 ;; Gensym.
 
@@ -477,10 +482,26 @@ For detailed usage instructions see MANUAL.md.
     (values name
             (cons 'module
                   (append
+                   (generate-memory cx env)
                    (generate-types cx env)
                    (generate-tables cx env)
                    (generate-globals cx env)
                    (generate-functions cx env))))))
+
+(define (generate-memory cx env)
+  (if (> (cx.memory cx) 0)
+      (let ((pages (ceiling (/ (cx.memory cx) 65536))))
+        (list `(memory ,pages ,pages)
+              `(data (i32.const 0)
+                     ,(apply string-append
+                             (map (lambda (i)
+                                    (let ((s (number->string (+ #x100000000 (if (>= i 0) i (+ i #xFFFFFFFF))) 16)))
+                                      (string #\\ (string-ref s 7) (string-ref s 8)
+                                              #\\ (string-ref s 5) (string-ref s 6)
+                                              #\\ (string-ref s 3) (string-ref s 4)
+                                              #\\ (string-ref s 1) (string-ref s 2))))
+                                  (reverse (cx.data cx)))))))
+      '()))
 
 (define (generate-types cx env)
   (reverse (map (lambda (x)
@@ -1294,6 +1315,13 @@ For detailed usage instructions see MANUAL.md.
        (let ((parent (class.base a)))
          (and parent
               (subclass? parent b)))))
+
+;; TODO: We need to reserve the name Object but we should only emit things for
+;; it if it is actually used for anything.  This way we avoid a memory segment
+;; when it isn't needed.
+;;
+;; This could be part of a general DCE thing, every global name could carry a
+;; referenced bit that we set when we look it up.
 
 (define (define-types! env)
   (define-env-global! env 'i32 *i32-type*)
@@ -2769,14 +2797,18 @@ For detailed usage instructions see MANUAL.md.
             (vector->list vtbl)))))
 
   (for-each (lambda (cls)
-              (let ((virtuals (class-dispatch-map cls))
-                    (bases    (reverse (class-ids cls))))
+              (let* ((virtuals (class-dispatch-map cls))
+                     (bases    (reverse (class-ids cls)))
+                     (table    (append (reverse virtuals) (list (class.host cls) (length bases)) bases))
+                     (addr     (cx.memory cx)))
+                (cx.memory-set! cx (+ addr (* 4 (length table))))
+                (for-each (lambda (d)
+                            (cx.data-set! cx (cons d (cx.data cx))))
+                          table)
                 (format-desc cx (class.name cls)
                              "{id_offset:~a, table:[~a]}"
                              (length virtuals)
-                             (comma-separate
-                              (map number->string
-                                   (append (reverse virtuals) (list (class.host cls) (length bases)) bases))))))
+                             (comma-separate (map number->string table)))))
             (classes env)))
 
 (define (synthesize-downcast-test cx env name)
