@@ -6,13 +6,13 @@ compile: function () { return fetch('snake.wasm').then(WebAssembly.compileStream
 
  desc:
  {
-'Object':{id:1, ids:[1], vtbl:[]},
-'Board':{id:2, ids:[2,1], vtbl:[]},
-'Tile':{id:3, ids:[3,1], vtbl:[0,0,0,0]},
-'Empty':{id:4, ids:[4,3,1], vtbl:[0,1,0,2]},
-'Wall':{id:5, ids:[5,3,1], vtbl:[1,0,0,5]},
-'Body':{id:6, ids:[6,3,1], vtbl:[1,0,0,3]},
-'Food':{id:7, ids:[7,3,1], vtbl:[0,0,1,4]},
+'Object':{id:1, bases:[1], vtable:[]},
+'Board':{id:2, bases:[2,1], vtable:[]},
+'Tile':{id:3, bases:[3,1], vtable:[0,0,0,0]},
+'Empty':{id:4, bases:[4,3,1], vtable:[0,1,0,2]},
+'Wall':{id:5, bases:[5,3,1], vtable:[1,0,0,5]},
+'Body':{id:6, bases:[6,3,1], vtable:[1,0,0,3]},
+'Food':{id:7, bases:[7,3,1], vtable:[0,0,1,4]},
 },
  types:
  {'Object':new TO.StructType({_desc_:TO.Object}),
@@ -68,7 +68,7 @@ function (p,i,v) {
 },
 '_get_Tile_element':function (p) { return p.element },
 '_set_Tile_element':function (p, v) { p.element = v },
-'_resolve_virtual':function(obj,vid) { return obj._desc_.vtbl[vid] },
+'_resolve_virtual':function(obj,vid) { return obj._desc_.vtable[vid] },
 '_get_Wall_element':function (p) { return p.element },
 '_get_Wall_rendering':function (p) { return p.rendering },
 '_get_Board_height':function (p) { return p.height },
@@ -76,16 +76,13 @@ function (p,i,v) {
 '_new_Body':function (element,younger_y,younger_x) { return new self.types.Body({_desc_:self.desc.Body,element,younger_y,younger_x}) },
 '_new_Food':function (element) { return new self.types.Food({_desc_:self.desc.Food,element}) },
 '_test':
- function(x, ys) {
-   let i=ys.length;
-   while (i-- > 0)
-     if (ys[i] === x) return true;
-   return false;
- }
+function(rhs_depth, rhs_id, lhs_bases) {
+  return lhs_bases.length > rhs_depth && lhs_bases[rhs_depth] == rhs_id;
+}
 ,
 '_downcast_class_to_Body':
 function (p) {
-  if (!self.lib._test(6, p._desc_.ids))
+  if (!self.lib._test(2, 6, p._desc_.bases))
     throw new Error('Failed to narrow to Body' + p);
   return p;
 },

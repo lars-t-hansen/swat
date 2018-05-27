@@ -2780,12 +2780,9 @@ For detailed usage instructions see MANUAL.md.
   ;; The signature is immaterial, this is only called from JS
   (js-lib cx env name '() *void-type*
           "
- function(x, ys) {
-   let i=ys.length;
-   while (i-- > 0)
-     if (ys[i] === x) return true;
-   return false;
- }
+function(rhs_depth, rhs_id, lhs_bases) {
+  return lhs_bases.length > rhs_depth && lhs_bases[rhs_depth] == rhs_id;
+}
 "))
 
 ;; Call out to read the _desc_ field; the fn takes anyref (really Object) and
@@ -2794,9 +2791,9 @@ For detailed usage instructions see MANUAL.md.
 ;; (define (render-get-descriptor-addr cx env cls)
 ;;   ...)
 
-(define (class-downcast-test cx env id cls)
+(define (class-downcast-test cx env lhs-ptr cls)
   (lookup-synthesized-func cx env '_test synthesize-downcast-test)
-  (format #f "self.lib._test(~a, ~a._desc_.bases)" (class.host cls) id))
+  (format #f "self.lib._test(~a, ~a, ~a._desc_.bases)" (class.depth cls) (class.host cls) lhs-ptr))
 
 (define (synthesize-resolve-virtual cx env name)
   (js-lib cx env name `(,*object-type* ,*i32-type*) *i32-type*
