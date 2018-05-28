@@ -82,9 +82,9 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
 ,
 '_downcast_class_to_Body':
 function (p) {
-  if (!self.lib._test(2, 6, p._desc_.id_offset, p._desc_.table))
-    throw new Error('Failed to narrow to Body' + p);
-  return p;
+  if (p === null || self.lib._test(2, 6, p._desc_.id_offset, p._desc_.table))
+    return p;
+  throw new Error('Failed to narrow to Body' + p);
 },
 '_set_Body_younger_y':function (p, v) { p.younger_y = v },
 '_set_Body_younger_x':function (p, v) { p.younger_x = v },

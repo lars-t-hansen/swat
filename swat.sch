@@ -2881,11 +2881,9 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
                                        desired)))
     `(call ,(func.id func) ,expr)))
 
-;; FIXME: null pointer?
-
 (define (synthesize-test-class-is-class cx env name cls)
   (js-lib cx env name `(,*Object-type*) *i32-type*
-          "function (p) { return ~a }" (class-downcast-test cx env 'p cls)))
+          "function (p) { return p === null || ~a }" (class-downcast-test cx env 'p cls)))
 
 (define (render-class-is-class cx env cls val)
   (let ((func (lookup-synthesized-func cx env
@@ -2896,7 +2894,7 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
 
 (define (synthesize-test-anyref-is-class cx env name cls)
   (js-lib cx env name `(,*anyref-type*) *i32-type*
-          "function (p) { return p !== null && typeof p._desc_ === 'object' && ~a }"
+          "function (p) { return p === null || (typeof p._desc_ === 'object' && ~a) }"
           (class-downcast-test cx env 'p cls)))
 
 (define (render-anyref-is-class cx env cls val)
@@ -2906,15 +2904,13 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
                                        cls)))
     `(call ,(func.id func) ,val)))
 
-;; FIXME: null pointer?
-
 (define (synthesize-downcast-class-to-class cx env name cls)
   (js-lib cx env name `(,*Object-type*) (class.type cls)
           "
 function (p) {
-  if (!~a)
-    throw new Error('Failed to narrow to ~a' + p);
-  return p;
+  if (p === null || ~a)
+    return p;
+  throw new Error('Failed to narrow to ~a' + p);
 }"
           (class-downcast-test cx env 'p cls)
           (class.name cls)))
@@ -2930,9 +2926,9 @@ function (p) {
   (js-lib cx env name `(,*anyref-type*) (class.type cls)
           "
 function (p) {
-  if (!(p !== null && typeof p._desc_ === 'object' && ~a))
-    throw new Error('Failed to narrow to ~a' + p);
-  return p;
+  if (p === null || (typeof p._desc_ === 'object' && ~a))
+    return p;
+  throw new Error('Failed to narrow to ~a' + p);
 }"
           (class-downcast-test cx env 'p cls)
           (class.name cls)))
