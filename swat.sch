@@ -676,7 +676,7 @@ For detailed usage instructions see MANUAL.md.
                                      (ty   (parse-type cx env (cadr f))))
                                  (if (class-type? ty)
                                      (resolve-class cx env (type.class ty) (cons cls forbidden)))
-                                 (if (and (vector-type? ty) (class? (type.vector-element ty)))
+                                 (if (and (Vector-type? ty) (class? (type.vector-element ty)))
                                      (resolve-class cx env (type.class (type.vector-element ty)) (cons (type.vector-element ty) forbidden)))
                                  (if (assq name base-fields)
                                      (fail "Duplicated field name" name))
@@ -985,7 +985,7 @@ For detailed usage instructions see MANUAL.md.
                                (fs v-formals (cdr fs))
                                (xs '()       (cons `(get_local ,i) xs)))
                               ((null? fs) (reverse xs)))
-                        ,(render-resolve-virtual cx env '(get_local 0) `(i32.const ,(virtual.vid virt)))))))))
+                        ,(render-resolve-virtual cx env '(get_local 0) (virtual.vid virt))))))))
 
 (define (assemble-virtual virtual body)
   (let ((f (prepend-signature (func.name virtual)
@@ -1249,10 +1249,10 @@ For detailed usage instructions see MANUAL.md.
 (define *i64-type* (make-primitive-type 'i64))
 (define *f32-type* (make-primitive-type 'f32))
 (define *f64-type* (make-primitive-type 'f64))
-(define *string-type* (make-primitive-type 'String))
+(define *String-type* (make-primitive-type 'String))
 (define *anyref-type* (make-primitive-type 'anyref))
 
-(define *object-type* (make-class-type (make-class 'Object #f '())))
+(define *Object-type* (make-class-type (make-class 'Object #f '())))
 
 (define (type=? a b)
   (or (eq? a b)
@@ -1268,7 +1268,7 @@ For detailed usage instructions see MANUAL.md.
 (define (i64-type? x)  (eq? x *i64-type*))
 (define (f32-type? x)  (eq? x *f32-type*))
 (define (f64-type? x)  (eq? x *f64-type*))
-(define (string-type? x) (eq? x *string-type*))
+(define (String-type? x) (eq? x *String-type*))
 (define (anyref-type? x) (eq? x *anyref-type*))
 
 (define (integer-type? x)
@@ -1295,14 +1295,14 @@ For detailed usage instructions see MANUAL.md.
 (define (class-type? x)
   (not (not (type.class x))))
 
-(define (vector-type? x)
+(define (Vector-type? x)
   (not (not (type.vector-element x))))
 
 (define (reference-type? x)
-  (or (class-type? x) (string-type? x) (anyref-type? x) (vector-type? x)))
+  (or (class-type? x) (String-type? x) (anyref-type? x) (Vector-type? x)))
 
 (define (nullable-reference-type? x)
-  (or (class-type? x) (anyref-type? x) (vector-type? x)))
+  (or (class-type? x) (anyref-type? x) (Vector-type? x)))
 
 (define (subclass? a b)
   (or (eq? a b)
@@ -1328,9 +1328,9 @@ For detailed usage instructions see MANUAL.md.
   (define-env-global! env 'i64 *i64-type*)
   (define-env-global! env 'f32 *f32-type*)
   (define-env-global! env 'f64 *f64-type*)
-  (define-env-global! env 'String *string-type*)
+  (define-env-global! env 'String *String-type*)
   (define-env-global! env 'anyref *anyref-type*)
-  (define-env-global! env 'Object *object-type*))
+  (define-env-global! env 'Object *Object-type*))
 
 (define (parse-type cx env t)
   (cond ((and (symbol? t) (lookup env t)) =>
@@ -1362,11 +1362,11 @@ For detailed usage instructions see MANUAL.md.
               (anyref-type? target-type))
          (list (render-upcast-class-to-anyref cx env value)
                target-type))
-        ((and (vector-type? value-type)
+        ((and (Vector-type? value-type)
               (anyref-type? target-type))
          (list (render-upcast-vector-to-anyref cx env (type.vector-element value-type) value)
                target-type))
-        ((and (string-type? value-type)
+        ((and (String-type? value-type)
               (anyref-type? target-type))
          (list (render-upcast-string-to-anyref cx env value)
                target-type))
@@ -1518,7 +1518,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define (expand-string-literal cx expr env)
   (values (render-string-literal cx env (string-literal->id cx expr))
-          *string-type*))
+          *String-type*))
 
 (define-record-type expander
   (%make-expander% name expander len)
@@ -1764,7 +1764,7 @@ For detailed usage instructions see MANUAL.md.
                   (actuals (expand-expressions cx (cddr expr) env))
                   (actuals (check-and-widen-arguments cx env fields actuals expr)))
              (values (render-new-class cx env cls actuals) type)))
-          ((vector-type? type)
+          ((Vector-type? type)
            (check-list expr 4 "Bad arguments to 'new'" expr)
            (let*-values (((el tl) (expand-expr cx (caddr expr) env))
                          ((ei ti) (expand-expr cx (cadddr expr) env)))
@@ -1780,7 +1780,7 @@ For detailed usage instructions see MANUAL.md.
          (type   (parse-type cx env tyexpr)))
     (cond ((class-type? type)
            (values (render-class-null cx env (type.class type)) type))
-          ((vector-type? type)
+          ((Vector-type? type)
            (values (render-vector-null cx env (type.vector-element type)) type))
           ((anyref-type? type)
            (values (render-anyref-null cx env) *anyref-type*))
@@ -1793,8 +1793,8 @@ For detailed usage instructions see MANUAL.md.
     (let-values (((e t) (expand-expr cx (caddr expr) env)))
       (cond ((anyref-type? target-type)
              (values `(block i32 ,e drop (i32.const 1)) *i32-type*))
-            ((string-type? target-type)
-             (cond ((string-type? t)
+            ((String-type? target-type)
+             (cond ((String-type? t)
                     `(block i32 ,e drop (i32.const 1)))
                    ((anyref-type? t)
                     (values (render-anyref-is-string cx env e) *i32-type*))
@@ -1814,8 +1814,8 @@ For detailed usage instructions see MANUAL.md.
                       (values (render-anyref-is-class cx env target-cls e) *i32-type*))
                      (else
                       (fail "Expression in 'is' is not of class type" expr)))))
-            ((vector-type? target-type)
-             (cond ((and (vector-type? t) (type=? target-type t))
+            ((Vector-type? target-type)
+             (cond ((and (Vector-type? t) (type=? target-type t))
                     `(block i32 ,e dro (i32.const 1)))
                    ((anyref-type? t)
                     (values (render-anyref-is-vector cx env e (type.vector-element target-type)) *i32-type*))
@@ -1831,16 +1831,16 @@ For detailed usage instructions see MANUAL.md.
       (cond ((anyref-type? target-type)
              (cond ((anyref-type? t)
                     (values e target-type))
-                   ((string-type? t)
+                   ((String-type? t)
                     (values (render-upcast-string-to-anyref cx env e) target-type))
                    ((class-type? t)
                     (values (render-upcast-class-to-anyref cx env e) target-type))
-                   ((vector-type? t)
+                   ((Vector-type? t)
                     (values (render-upcast-vector-to-anyref cx env (type.vector-element t) e) target-type))
                    (else
                     (canthappen))))
-            ((string-type? target-type)
-             (cond ((string-type? t)
+            ((String-type? target-type)
+             (cond ((String-type? t)
                     (values e target-type))
                    ((anyref-type? t)
                     (values (render-downcast-anyref-to-string cx env e) target-type))
@@ -1865,8 +1865,8 @@ For detailed usage instructions see MANUAL.md.
                               (class.type target-cls)))
                      (else
                       (fail "Expression in 'as' is not of class type" expr)))))
-            ((vector-type? target-type)
-             (cond ((and (vector-type? t) (type=? target-type t))
+            ((Vector-type? target-type)
+             (cond ((and (Vector-type? t) (type=? target-type t))
                     (values e target-type))
                    ((anyref-type? t)
                     (values (render-downcast-anyref-to-vector cx env e (type.vector-element target-type))
@@ -2368,7 +2368,7 @@ For detailed usage instructions see MANUAL.md.
                         (check-i32-type (cadr x) "Argument to 'string'" expr)
                         (car x))
                       (expand-expressions cx (cdr expr) env))))
-    (values (render-new-string cx env actuals) *string-type*)))
+    (values (render-new-string cx env actuals) *String-type*)))
 
 (define (expand-string-length cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
@@ -2404,7 +2404,7 @@ For detailed usage instructions see MANUAL.md.
                                                             ,@(cdddr expr))
                                           env)))
                  e0)))
-            *string-type*)))
+            *String-type*)))
 
 (define (expand-substring cx expr env)
   (let*-values (((e0 t0) (expand-expr cx (cadr expr) env))
@@ -2413,7 +2413,7 @@ For detailed usage instructions see MANUAL.md.
     (check-string-type t0 "'substring'" expr)
     (check-i32-type t1 "'substring'" expr)
     (check-i32-type t2 "'substring'" expr)
-    (values (render-substring cx env e0 e1 e2) *string-type*)))
+    (values (render-substring cx env e0 e1 e2) *String-type*)))
 
 (define (expand-string-relop cx expr env)
   (let*-values (((e0 t0) (expand-expr cx (cadr expr) env))
@@ -2459,7 +2459,7 @@ For detailed usage instructions see MANUAL.md.
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
     (check-vector-type t0 "'vector->string'" expr)
     (check-i32-type (type.vector-element t0) "'vector->string'" expr)
-    (values (render-vector->string cx env e0) *string-type*)))
+    (values (render-vector->string cx env e0) *String-type*)))
 
 (define (expand-string->vector cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
@@ -2501,11 +2501,11 @@ For detailed usage instructions see MANUAL.md.
       (apply fail `("Not an integer type in" ,context ,@rest "\n" ,(pretty-type t)))))
 
 (define (check-string-type t context . rest)
-  (if (not (string-type? t))
+  (if (not (String-type? t))
       (apply fail `("Not a string type in" ,context ,@rest "\n" ,(pretty-type t)))))
 
 (define (check-vector-type t context . rest)
-  (if (not (vector-type? t))
+  (if (not (Vector-type? t))
       (apply fail `("Not a vector type in" ,context ,@rest "\n" ,(pretty-type t)))))
 
 (define (check-same-types types . context)
@@ -2806,7 +2806,8 @@ For detailed usage instructions see MANUAL.md.
                             (cx.data-set! cx (cons d (cx.data cx))))
                           table)
                 (format-desc cx (class.name cls)
-                             "{id_offset:~a, table:[~a]}"
+                             "{addr: ~a, id_offset:~a, table:[~a]}"
+                             (+ addr (* 4 (length virtuals)))
                              (length virtuals)
                              (comma-separate (map number->string table)))))
             (classes env)))
@@ -2820,23 +2821,32 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
 }
 "))
 
-;; Call out to read the _desc_ field; the fn takes anyref (really Object) and
-;; returns i32.
+;; Once we have field access in wasm the the 'get descriptor' operation will be
+;; subtype-polymorphic, it takes an Object that has a _desc_ field and returns
+;; an i32.  (Presumably it actually takes an Object that has an i32 field at
+;; offset 0.)  It depends on some kind of subtyping resolution in Wasm.
 
-;; (define (render-get-descriptor-addr cx env cls)
-;;   ...)
+(define (synthesize-get-descriptor-addr cx env name)
+  (js-lib cx env name `(,*Object-type*) *i32-type* "function (p) { return p._desc_.addr }"))
+
+(define (render-get-descriptor-addr cx env base-expr)
+  (let ((func (lookup-synthesized-func cx env '_desc_ synthesize-get-descriptor-addr)))
+    `(call ,(func.id func) ,base-expr)))
 
 (define (class-downcast-test cx env lhs-ptr cls)
   (lookup-synthesized-func cx env '_test synthesize-downcast-test)
   (format #f "self.lib._test(~a, ~a, ~a._desc_.id_offset, ~a._desc_.table)" (class.depth cls) (class.host cls) lhs-ptr lhs-ptr))
 
-(define (synthesize-resolve-virtual cx env name)
-  (js-lib cx env name `(,*object-type* ,*i32-type*) *i32-type*
-          "function(obj,vid) { return obj._desc_.table[obj._desc_.id_offset - 1 - vid] }"))
+;; (define (synthesize-resolve-virtual cx env name)
+;;   (js-lib cx env name `(,*Object-type* ,*i32-type*) *i32-type*
+;;           "function(obj,vid) { return obj._desc_.table[obj._desc_.id_offset - 1 - vid] }"))
+
+;; (define (render-resolve-virtual cx env receiver-expr vid)
+;;   (let ((func (lookup-synthesized-func cx env '_resolve_virtual synthesize-resolve-virtual)))
+;;     `(call ,(func.id func) ,receiver-expr (i32.const ,vid))))
 
 (define (render-resolve-virtual cx env receiver-expr vid)
-  (let ((func (lookup-synthesized-func cx env '_resolve_virtual synthesize-resolve-virtual)))
-    `(call ,(func.id func) ,receiver-expr ,vid)))
+  `(i32.load (i32.sub ,(render-get-descriptor-addr cx env receiver-expr) (i32.const ,(* 4 (+ vid 1))))))
 
 ;; Class operations
 
@@ -2863,14 +2873,14 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
 ;; just anyref we may need an explicit upcast here.
 
 (define (synthesize-upcast-class-to-anyref cx env name)
-  (js-lib cx env name `(,*object-type*) *anyref-type* "function (p) { return p }"))
+  (js-lib cx env name `(,*Object-type*) *anyref-type* "function (p) { return p }"))
 
 (define (render-upcast-class-to-anyref cx env expr)
   (let ((func (lookup-synthesized-func cx env '_upcast_class_to_anyref synthesize-upcast-class-to-anyref)))
     `(call ,(func.id func) ,expr)))
 
 (define (synthesize-upcast-to-class cx env name cls)
-  (js-lib cx env name `(,*object-type*) (class.type cls) "function (p) { return p }"))
+  (js-lib cx env name `(,*Object-type*) (class.type cls) "function (p) { return p }"))
 
 (define (render-upcast-class-to-class cx env desired expr)
   (let ((func (lookup-synthesized-func cx env
@@ -2880,7 +2890,7 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
     `(call ,(func.id func) ,expr)))
 
 (define (synthesize-test-class-is-class cx env name cls)
-  (js-lib cx env name `(,*object-type*) *i32-type*
+  (js-lib cx env name `(,*Object-type*) *i32-type*
           "function (p) { return ~a }" (class-downcast-test cx env 'p cls)))
 
 (define (render-class-is-class cx env cls val)
@@ -2903,7 +2913,7 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
     `(call ,(func.id func) ,val)))
 
 (define (synthesize-downcast-class-to-class cx env name cls)
-  (js-lib cx env name `(,*object-type*) (class.type cls)
+  (js-lib cx env name `(,*Object-type*) (class.type cls)
           "
 function (p) {
   if (!~a)
@@ -2979,14 +2989,14 @@ function (p) {
             (map car (reverse (cx.strings cx))))))
 
 (define (synthesize-string-literal cx env name)
-  (js-lib cx env name `(,*i32-type*) *string-type* "function (n) { return self.strings[n] }"))
+  (js-lib cx env name `(,*i32-type*) *String-type* "function (n) { return self.strings[n] }"))
 
 (define (render-string-literal cx env n)
   (let ((func (lookup-synthesized-func cx env '_string_literal synthesize-string-literal)))
     `(call ,(func.id func) (i32.const ,n))))
 
 (define (synthesize-new-string-and-string-10chars cx env name name2)
-  (js-lib cx env name (make-list 11 *i32-type*) *string-type*
+  (js-lib cx env name (make-list 11 *i32-type*) *String-type*
           "
 function (n,x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
   self.buffer.push(x1,x2,x3,x4,x5,x6,x7,x8,x9,x10);
@@ -3007,7 +3017,7 @@ function (x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
     (let loop ((n (length args)) (args args) (code '()))
       (if (<= n 10)
           (let ((args (append args (make-list (- 10 n) '(i32.const 0)))))
-            `(block ,(render-type *string-type*)
+            `(block ,(render-type *String-type*)
                     ,@(reverse code)
                     (call ,(func.id new_string) (i32.const ,n) ,@args)))
           (loop (- n 10)
@@ -3016,14 +3026,14 @@ function (x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
                       code))))))
 
 (define (synthesize-string-length cx env name)
-  (js-lib cx env name `(,*string-type*) *i32-type* "function (p) { return p.length }"))
+  (js-lib cx env name `(,*String-type*) *i32-type* "function (p) { return p.length }"))
 
 (define (render-string-length cx env expr)
   (let ((func (lookup-synthesized-func cx env '_string_length synthesize-string-length)))
     `(call ,(func.id func) ,expr)))
 
 (define (synthesize-string-ref cx env name)
-  (js-lib cx env name `(,*string-type* ,*i32-type*) *i32-type*
+  (js-lib cx env name `(,*String-type* ,*i32-type*) *i32-type*
           "
 function (str,idx) {
   if ((idx >>> 0) >= str.length)
@@ -3036,14 +3046,14 @@ function (str,idx) {
     `(call ,(func.id func) ,e0 ,e1)))
 
 (define (synthesize-string-append cx env name)
-  (js-lib cx env name `(,*string-type* ,*string-type*) *string-type* "function (p,q) { return p + q }"))
+  (js-lib cx env name `(,*String-type* ,*String-type*) *String-type* "function (p,q) { return p + q }"))
 
 (define (render-string-append cx env e0 e1)
   (let ((func (lookup-synthesized-func cx env '_string_append synthesize-string-append)))
     `(call ,(func.id func) ,e0 ,e1)))
 
 (define (synthesize-substring cx env name)
-  (js-lib cx env name `(,*string-type* ,*i32-type* ,*i32-type*) *string-type*
+  (js-lib cx env name `(,*String-type* ,*i32-type* ,*i32-type*) *String-type*
           "
 function (str,start,end) {
   if ((start >>> 0) >= str.length || (end >>> 0) > str.length)
@@ -3056,7 +3066,7 @@ function (str,start,end) {
     `(call ,(func.id func) ,e0 ,e1 ,e2)))
 
 (define (synthesize-string-compare cx env name)
-  (js-lib cx env name `(,*string-type* ,*string-type*) *i32-type*
+  (js-lib cx env name `(,*String-type* ,*String-type*) *i32-type*
           "
 function (p,q) {
   let a = p.length;
@@ -3075,7 +3085,7 @@ function (p,q) {
     `(call ,(func.id func) ,e0 ,e1)))
 
 (define (synthesize-vector->string cx env name)
-  (js-lib cx env name `(,(make-vector-type cx env *i32-type*)) *string-type*
+  (js-lib cx env name `(,(make-vector-type cx env *i32-type*)) *String-type*
           "function (x) { return String.fromCharCode.apply(null, x) }"))
 
 (define (render-vector->string cx env e)
@@ -3084,7 +3094,7 @@ function (p,q) {
 
 (define (synthesize-string->vector cx env name)
   (let ((vt (make-vector-type cx env *i32-type*)))
-    (js-lib cx env name `(,*string-type*) vt
+    (js-lib cx env name `(,*String-type*) vt
             "
 function (s) {
   let len = x.length;
@@ -3100,7 +3110,7 @@ function (s) {
     `(call ,(func.id func) ,e)))
 
 (define (synthesize-upcast-string-to-anyref cx env name)
-  (js-lib cx env name `(,*string-type*) *anyref-type* "function (p) { return p }"))
+  (js-lib cx env name `(,*String-type*) *anyref-type* "function (p) { return p }"))
 
 (define (render-upcast-string-to-anyref cx env expr)
   (let ((func (lookup-synthesized-func cx env '_upcast_string_to_anyref synthesize-upcast-string-to-anyref)))
@@ -3114,7 +3124,7 @@ function (s) {
   `(call ,(func.id func) ,val)))
 
 (define (synthesize-downcast-anyref-to-string cx env name)
-  (js-lib cx env name `(,*anyref-type*) *string-type*
+  (js-lib cx env name `(,*anyref-type*) *String-type*
           "
 function (p) {
   if (!(p instanceof String))
@@ -3229,7 +3239,7 @@ function (p) {
     `(call ,(func.id func) ,expr)))
 
 (define (render-element-type element-type)
-  (cond ((vector-type? element-type)
+  (cond ((Vector-type? element-type)
          (string-append "@" (render-element-type (type.vector-element element-type))))
         ((class-type? element-type)
          (symbol->string (class.name (type.class element-type))))

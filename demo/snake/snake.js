@@ -6,13 +6,13 @@ compile: function () { return fetch('snake.wasm').then(WebAssembly.compileStream
 
  desc:
  {
-'Object':{id_offset:0, table:[1,1,1]},
-'Board':{id_offset:0, table:[2,2,1,2]},
-'Tile':{id_offset:4, table:[0,0,0,0,3,2,1,3]},
-'Empty':{id_offset:4, table:[2,0,1,0,4,3,1,3,4]},
-'Wall':{id_offset:4, table:[5,0,0,1,5,3,1,3,5]},
-'Body':{id_offset:4, table:[3,0,0,1,6,3,1,3,6]},
-'Food':{id_offset:4, table:[4,1,0,0,7,3,1,3,7]},
+'Object':{addr: 0, id_offset:0, table:[1,1,1]},
+'Board':{addr: 12, id_offset:0, table:[2,2,1,2]},
+'Tile':{addr: 44, id_offset:4, table:[0,0,0,0,3,2,1,3]},
+'Empty':{addr: 76, id_offset:4, table:[2,0,1,0,4,3,1,3,4]},
+'Wall':{addr: 112, id_offset:4, table:[5,0,0,1,5,3,1,3,5]},
+'Body':{addr: 148, id_offset:4, table:[3,0,0,1,6,3,1,3,6]},
+'Food':{addr: 184, id_offset:4, table:[4,1,0,0,7,3,1,3,7]},
 },
  types:
  {'Object':new TO.StructType({_desc_:TO.Object}),
@@ -68,7 +68,7 @@ function (p,i,v) {
 },
 '_get_Tile_element':function (p) { return p.element },
 '_set_Tile_element':function (p, v) { p.element = v },
-'_resolve_virtual':function(obj,vid) { return obj._desc_.table[obj._desc_.id_offset - 1 - vid] },
+'_desc_':function (p) { return p._desc_.addr },
 '_get_Wall_element':function (p) { return p.element },
 '_get_Wall_rendering':function (p) { return p.rendering },
 '_get_Board_height':function (p) { return p.height },
