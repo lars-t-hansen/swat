@@ -2812,7 +2812,7 @@ For detailed usage instructions see MANUAL.md.
                              (comma-separate (map number->string table)))))
             (classes env)))
 
-(define (synthesize-downcast-test cx env name)
+(define (synthesize-class-downcast-test cx env name)
   ;; The signature is immaterial, this is only called from JS
   (js-lib cx env name '() *void-type*
           "
@@ -2820,6 +2820,10 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
   return lhs_table[id_offset + 1] > rhs_depth && lhs_table[id_offset + 2 + rhs_depth] == rhs_id;
 }
 "))
+
+(define (class-downcast-test cx env lhs-ptr cls)
+  (lookup-synthesized-func cx env '_test synthesize-class-downcast-test)
+  (format #f "self.lib._test(~a, ~a, ~a._desc_.id_offset, ~a._desc_.table)" (class.depth cls) (class.host cls) lhs-ptr lhs-ptr))
 
 ;; Once we have field access in wasm the the 'get descriptor' operation will be
 ;; subtype-polymorphic, it takes an Object that has a _desc_ field and returns
@@ -2832,18 +2836,6 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
 (define (render-get-descriptor-addr cx env base-expr)
   (let ((func (lookup-synthesized-func cx env '_desc_ synthesize-get-descriptor-addr)))
     `(call ,(func.id func) ,base-expr)))
-
-(define (class-downcast-test cx env lhs-ptr cls)
-  (lookup-synthesized-func cx env '_test synthesize-downcast-test)
-  (format #f "self.lib._test(~a, ~a, ~a._desc_.id_offset, ~a._desc_.table)" (class.depth cls) (class.host cls) lhs-ptr lhs-ptr))
-
-;; (define (synthesize-resolve-virtual cx env name)
-;;   (js-lib cx env name `(,*Object-type* ,*i32-type*) *i32-type*
-;;           "function(obj,vid) { return obj._desc_.table[obj._desc_.id_offset - 1 - vid] }"))
-
-;; (define (render-resolve-virtual cx env receiver-expr vid)
-;;   (let ((func (lookup-synthesized-func cx env '_resolve_virtual synthesize-resolve-virtual)))
-;;     `(call ,(func.id func) ,receiver-expr (i32.const ,vid))))
 
 (define (render-resolve-virtual cx env receiver-expr vid)
   `(i32.load (i32.sub ,(render-get-descriptor-addr cx env receiver-expr) (i32.const ,(* 4 (+ vid 1))))))
@@ -2889,6 +2881,8 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
                                        desired)))
     `(call ,(func.id func) ,expr)))
 
+;; FIXME: null pointer?
+
 (define (synthesize-test-class-is-class cx env name cls)
   (js-lib cx env name `(,*Object-type*) *i32-type*
           "function (p) { return ~a }" (class-downcast-test cx env 'p cls)))
@@ -2911,6 +2905,8 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
                                        synthesize-test-anyref-is-class
                                        cls)))
     `(call ,(func.id func) ,val)))
+
+;; FIXME: null pointer?
 
 (define (synthesize-downcast-class-to-class cx env name cls)
   (js-lib cx env name `(,*Object-type*) (class.type cls)
@@ -3123,6 +3119,8 @@ function (s) {
   (let ((func (lookup-synthesized-func cx env '_anyref_is_string synthesize-anyref-is-string)))
   `(call ,(func.id func) ,val)))
 
+;; FIXME: null pointer
+
 (define (synthesize-downcast-anyref-to-string cx env name)
   (js-lib cx env name `(,*anyref-type*) *String-type*
           "
@@ -3221,6 +3219,8 @@ function (p,i,v) {
                                        synthesize-anyref-is-vector
                                        element-type)))
     `(call ,(func.id func) ,expr)))
+
+;; FIXME: null pointer?
 
 (define (synthesize-downcast-anyref-to-vector cx env name element-type)
   (let ((vt (type.vector-of element-type)))
