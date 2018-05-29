@@ -875,6 +875,18 @@ For detailed usage instructions see MANUAL.md.
 
 ;; See above for make-virtual and virtual? and additional accessors
 
+;; FIXME: For virtuals there's also a downcast of the first argument to the
+;; class that is the receiver.  This cast needs to be inserted into the method.
+;; Note that with our current system that target class need not be the exact
+;; class of the receiver, because the signature in the dispatch does not have to
+;; match the signature in the implementation.  If we had a defvirtual/defmethod
+;; split, or if we required the type match when creating the virtual, then that
+;; would be different.
+;;
+;; The sad thing is that the downcast will never fail, because computing the
+;; dispatch ensures that it will not.  But in the eventual wasm design we will
+;; have this cost unless we formalize virtual dispatch somehow.
+
 (define (expand-virtual-phase1 cx env f)
   (expand-func-or-virtual-phase1
    cx env f "virtual"
