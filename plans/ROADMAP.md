@@ -6,6 +6,7 @@
 * Virtual function cleanup
   * Missing handling of the "default" case
   * Idiosyncratic "closed" syntax, defvirtual + defmethod would be less weird and "open" and forward-looking
+  * Probable bug, we need downcast at the virtual dispatch boundary
 * Exportable classes
   * They should show up as factory functions M.make.Cls(), and with access to fields thru the std TypedObject mechanism
 * Some way of accessing host objects, so that we don't have to go to JS for DOM access.
@@ -44,10 +45,8 @@
 * speed up vcalls, maybe avoid going out of line [flag -O]
 * speed up upcasts, don't emit code [flag -O]
 * ditto downcasts, probably - for now
-* if the desc is in flat memory then reading the desc means obtaining an index
 * note, right now JS performs a null check on obj reference, does this move into wasm somehow?
 * can we create a general runtime facility?
-* clean up toolchain: r7rs support?  chez scheme or other scheme system support?
 * more demos
 * Fix the L.#x10 bug if possible, maybe by finessing it to L.x10
 
