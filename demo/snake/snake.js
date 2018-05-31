@@ -75,17 +75,6 @@ function (p,i,v) {
 '_upcast_class_to_anyref':function (p) { return p },
 '_new_Body':function (element,younger_y,younger_x) { return new self.types.Body({_desc_:self.desc.Body,element,younger_y,younger_x}) },
 '_new_Food':function (element) { return new self.types.Food({_desc_:self.desc.Food,element}) },
-'_test':
-function(rhs_depth, rhs_id, id_offset, lhs_table) {
-  return lhs_table[id_offset + 1] > rhs_depth && lhs_table[id_offset + 2 + rhs_depth] == rhs_id;
-}
-,
-'_downcast_class_to_Body':
-function (p) {
-  if (p === null || self.lib._test(2, 6, p._desc_.id_offset, p._desc_.table))
-    return p;
-  throw new Error('Failed to narrow to Body' + p);
-},
 '_set_Body_younger_y':function (p, v) { p.younger_y = v },
 '_set_Body_younger_x':function (p, v) { p.younger_x = v },
 '_get_Body_younger_y':function (p) { return p.younger_y },

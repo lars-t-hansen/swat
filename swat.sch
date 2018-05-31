@@ -992,12 +992,18 @@ For detailed usage instructions see MANUAL.md.
 
       (assemble-virtual
        virt
-       `((call_indirect ,typeref
+       `((if (ref.is_null (get_local 0))
+             (unreachable))
+         (call_indirect ,typeref
                         ,@(do ((i  0         (+ i 1))
                                (fs v-formals (cdr fs))
                                (xs '()       (cons `(get_local ,i) xs)))
                               ((null? fs) (reverse xs)))
-                        ,(render-resolve-virtual cx env '(get_local 0) (virtual.vid virt))))))))
+                        ,(let-values (((e0 t0)
+                                       (resolve-nonnull-virtual cx env
+                                                                '(get_local 0) (class.type disc-cls)
+                                                                (virtual.vid virt))))
+                           e0)))))))
 
 (define (assemble-virtual virtual body)
   (let ((f (prepend-signature (func.name virtual)
@@ -1457,6 +1463,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define min-i32 (- (expt 2 31)))
 (define max-i32 (- (expt 2 31) 1))
+(define max-u32 (- (expt 2 32) 1))
 
 (define min-i64 (- (expt 2 63)))
 (define max-i64 (- (expt 2 63) 1))
@@ -1587,6 +1594,7 @@ For detailed usage instructions see MANUAL.md.
   (define-env-global! env 'or       (make-expander 'or expand-or '(atleast 1)))
   (define-env-global! env '%or%     (make-expander '%or% expand-or '(atleast 1)))
   (define-env-global! env 'trap     (make-expander 'trap expand-trap '(oneof 1 2)))
+  (define-env-global! env '%trap%   (make-expander '%trap% expand-trap '(oneof 1 2)))
   (define-env-global! env 'new      (make-expander 'new expand-new '(atleast 2)))
   (define-env-global! env 'null     (make-expander 'null expand-null '(precisely 2)))
   (define-env-global! env 'is       (make-expander 'is expand-is '(precisely 3)))
@@ -1610,7 +1618,7 @@ For detailed usage instructions see MANUAL.md.
             '(+ %+% - %-% * div divu rem remu bitand bitor bitxor shl shr shru rotl rotr max min copysign))
   (for-each (lambda (name)
               (define-env-global! env name (make-expander name expand-relop '(precisely 3))))
-            '(< <u <= <=u > >u >= >=u =))
+            '(< <u <= <=u > >u >= >=u = %>u% %=%))
   (for-each (lambda (name)
               (define-env-global! env name (make-expander name expand-conversion '(precisely 2))))
             '(i32->i64 u32->i64 i64->i32 f32->f64 f64->f32 f64->i32 f64->i64 i32->f64 i64->f64
@@ -1628,7 +1636,12 @@ For detailed usage instructions see MANUAL.md.
   (define-env-global! env 'vector-ref (make-expander 'vector-ref expand-vector-ref '(precisely 3)))
   (define-env-global! env 'vector-set! (make-expander 'vector-set! expand-vector-set! '(precisely 4)))
   (define-env-global! env 'vector->string (make-expander 'vector->string expand-vector->string '(precisely 2)))
-  (define-env-global! env 'string->vector (make-expander 'string->vector expand-string->vector '(precisely 2))))
+  (define-env-global! env 'string->vector (make-expander 'string->vector expand-string->vector '(precisely 2)))
+  (define-env-global! env '%object-desc% (make-expander '%object-desc% expand-object-desc '(precisely 2)))
+  (define-env-global! env '%desc-id% (make-expander '%desc-id% expand-desc-id '(precisely 2)))
+  (define-env-global! env '%desc-length% (make-expander '%desc-length% expand-desc-length '(precisely 2)))
+  (define-env-global! env '%desc-ref% (make-expander '%desc-ref% expand-desc-ref '(precisely 3)))
+  (define-env-global! env '%desc-virtual% (make-expander '%desc-virtual% expand-desc-virtual '(precisely 3))))
 
 ;; Primitive syntax
 
@@ -1827,7 +1840,7 @@ For detailed usage instructions see MANUAL.md.
                         (cond ((subclass? value-cls target-cls)
                                (values `(block i32 ,e drop (i32.const 1)) *i32-type*))
                               ((subclass? target-cls value-cls)
-                               (values (render-class-is-class cx env target-cls e) *i32-type*))
+                               (maybenull-class-is-class cx env target-cls e t))
                               (else
                                (fail "Types in 'is' are unrelated" expr)))))
                      ((anyref-type? t)
@@ -1876,8 +1889,7 @@ For detailed usage instructions see MANUAL.md.
                                (values (render-upcast-class-to-class cx env target-cls e)
                                        (class.type target-cls)))
                               ((subclass? target-cls value-cls)
-                               (values (render-downcast-class-to-class cx env target-cls e)
-                                       (class.type target-cls)))
+                               (downcast-maybenull-class-to-class cx env target-cls e t))
                               (else
                                (fail "Types in 'as' are unrelated" expr)))))
                      ((anyref-type? t)
@@ -1896,6 +1908,47 @@ For detailed usage instructions see MANUAL.md.
             (else
              (fail "Bad target type in 'is'" target-type expr))))))
 
+;; `val` is a wasm expression and `valty` is its type object.
+
+(define (maybenull-class-is-class cx env cls val valty)
+  (let ((obj  (new-name cx "p"))
+        (desc (new-name cx "a")))
+    (expand-expr
+     cx
+     `(%let% ((,obj (%wasm% ,valty ,val)))
+        (%if% (%null?% ,obj)
+              #t
+              (%let% ((,desc (%object-desc% ,obj)))
+                (%and% (%>u% (%desc-length% ,desc) ,(class.depth cls))
+                       (%=% (%desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))
+     env)))
+
+;; `val` is a wasm expression and `valty` is its type object.
+
+(define (downcast-maybenull-class-to-class cx env cls val valty)
+  (let ((obj  (new-name cx "p"))
+        (desc (new-name cx "a")))
+    (expand-expr
+     cx
+     `(%let% ((,obj (%wasm% ,valty ,val)))
+        (%if% (%null?% ,obj)
+              (%wasm% ,(class.type cls) (get_local (%id% ,obj)))
+              (%let% ((,desc (%object-desc% ,obj)))
+                (%if% (%>u% (%desc-length% ,desc) ,(class.depth cls))
+                      (%if% (%=% (%desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))
+                            (%wasm% ,(class.type cls) (get_local (%id% ,obj)))
+                            (%wasm% ,(class.type cls) (unreachable)))
+                      (%wasm% ,(class.type cls) (unreachable))))))
+     env)))
+
+;; `obj` is a wasm expression, `objty` its type object, and `vid` is the virtual index.
+
+(define (resolve-nonnull-virtual cx env obj objty vid)
+  (expand-expr
+   cx
+   `(%desc-virtual% ,vid (%object-desc% (%wasm% ,objty ,obj)))
+   env))
+
 ;; Inline wasm is not yet exposed to user code because it can be used to break
 ;; generated code.  For example, the %id% form can be used to compute the slot
 ;; number of any local or global, and this knowledge can escape.  Even if we did
@@ -1903,7 +1956,7 @@ For detailed usage instructions see MANUAL.md.
 ;; hazard.
 ;;
 ;; Wasm       ::= (%wasm% WasmType Code)
-;; WasmType   ::= i32 | i64 | f32 | f64 | anyref | Empty
+;; WasmType   ::= i32 | i64 | f32 | f64 | anyref | TypeObject | Empty
 ;; Code       ::= (Code ...) | SchemeSymbol | SchemeNumber | (%id% Id)
 ;;
 ;;   This is a primitive inline-wasm-code facility.  `Code` is any Wasm code,
@@ -1962,15 +2015,18 @@ For detailed usage instructions see MANUAL.md.
            (map descend e))))
 
   (values (descend (car (last-pair expr)))
-          (if (= (length expr) 2)
-              *void-type*
-              (case (cadr expr)
-                ((i32) *i32-type*)
-                ((i64) *i64-type*)
-                ((f32) *f32-type*)
-                ((f64) *f64-type*)
-                ((anyref) *anyref-type*)
-                (else (fail "Bad type in wasm form" expr))))))
+          (cond ((= (length expr) 2)
+                 *void-type*)
+                ((type? (cadr expr))
+                 (cadr expr))
+                (else
+                 (case (cadr expr)
+                   ((i32) *i32-type*)
+                   ((i64) *i64-type*)
+                   ((f32) *f32-type*)
+                   ((f64) *f64-type*)
+                   ((anyref) *anyref-type*)
+                   (else (fail "Bad type in wasm form" expr)))))))
 
 ;; Derived syntax
 
@@ -2408,6 +2464,7 @@ For detailed usage instructions see MANUAL.md.
     (<=u ".le_u" i32 i64)
     (> ".gt_s" i32 i64)
     (>u ".gt_u" i32 i64)
+    (%>u% ".gt_u" i32 i64)
     (>= ".ge_s" i32 i64)
     (>=u ".ge_u" i32 i64)
     (bitand ".and" i32 i64)
@@ -2445,6 +2502,7 @@ For detailed usage instructions see MANUAL.md.
     (%-% ".sub" i32 i64 f32 f64)
     (* ".mul" i32 i64 f32 f64)
     (= ".eq" i32 i64 f32 f64)
+    (%=% ".eq" i32 i64 f32 f64)
     (%!=% ".ne" i32 i64 f32 f64)))
 
 (define (typed-constant t value)
@@ -2556,11 +2614,43 @@ For detailed usage instructions see MANUAL.md.
     (check-string-type t0 "'string->vector'" expr)
     (values (render-string->vector cx env e0) (make-vector-type cx env *i32-type*))))
 
+(define (expand-object-desc cx expr env)
+  (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
+    (check-class-type t0 "'%object-desc%'" expr)
+    (values (render-get-descriptor-addr cx env e0) *i32-type*)))
+
+(define (expand-desc-id cx expr env)
+  (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
+    (check-i32-type t0 "'%desc-id%'" expr)
+    (values `(i32.load ,e0) *i32-type*)))
+
+(define (expand-desc-length cx expr env)
+  (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
+    (check-i32-type t0 "'%desc-length%'" expr)
+    (values `(i32.load offset = 4 ,e0) *i32-type*)))
+
+(define (expand-desc-ref cx expr env)
+  (check-u32-value (cadr expr) "'%desc-ref'" expr)
+  (let-values (((e0 t0) (expand-expr cx (caddr expr) env)))
+    (check-i32-type t0 "'%desc-ref%'" expr)
+    (values `(i32.load offset = ,(+ 8 (* 4 (cadr expr))) ,e0) *i32-type*)))
+
+(define (expand-desc-virtual cx expr env)
+  (let ((vid (cadr expr)))
+    (check-u32-value vid "'%desc-virtual'" expr)
+    (let-values (((e0 t0) (expand-expr cx (caddr expr) env)))
+      (check-i32-type t0 "'%desc-virtual%'" expr)
+      (values `(i32.load (i32.sub ,e0 (i32.const ,(+ 4 (* 4 vid))))) *i32-type*))))
+
 ;; Type checking.
 
 (define (check-i32-value val . context)
   (if (not (and (integer? val) (exact? val) (<= min-i32 val max-i32)))
       (apply fail "Value outside i32 range" val context)))
+
+(define (check-u32-value val . context)
+  (if (not (and (integer? val) (exact? val) (<= 0 val max-u32)))
+      (apply fail "Nonnegative constant integer slot required" val context)))
 
 (define (check-i64-value val . context)
   (if (not (and (integer? val) (exact? val) (<= min-i64 val max-i64)))
@@ -2915,9 +3005,6 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
   (lookup-synthesized-func cx env '_test synthesize-js-class-downcast-test)
   (format #f "self.lib._test(~a, ~a, ~a._desc_.id_offset, ~a._desc_.table)" (class.depth cls) (class.host cls) lhs-ptr lhs-ptr))
 
-;; (define (wasm-class-downcast-test cx env lhs-ptr cls)
-;;   ...)
-
 ;; Once we have field access in wasm the the 'get descriptor' operation will be
 ;; subtype-polymorphic, it takes an Object that has a _desc_ field and returns
 ;; an i32.  (Presumably it actually takes an Object that has an i32 field at
@@ -2929,11 +3016,6 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
 (define (render-get-descriptor-addr cx env base-expr)
   (let ((func (lookup-synthesized-func cx env '_desc_ synthesize-get-descriptor-addr)))
     `(call ,(func.id func) ,base-expr)))
-
-;; TODO: move this, it is no longer "javascript" support
-
-(define (render-resolve-virtual cx env receiver-expr vid)
-  `(i32.load (i32.sub ,(render-get-descriptor-addr cx env receiver-expr) (i32.const ,(* 4 (+ vid 1))))))
 
 ;; Class operations
 
@@ -2976,54 +3058,13 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
                                        desired)))
     `(call ,(func.id func) ,expr)))
 
-;; (define (synthesize-test-class-is-class cx env name cls)
-;;   (js-lib cx env name `(,*Object-type*) *i32-type*
-;;           "function (p) { return p === null || ~a }" (js-class-downcast-test cx env 'p cls)))
-
-;; (define (render-class-is-class cx env cls val)
-;;   (let ((func (lookup-synthesized-func cx env
-;;                                        (splice "_class_is_" (class.name cls))
-;;                                        synthesize-test-class-is-class
-;;                                        cls)))
-;;     `(call ,(func.id func) ,val)))
-
-;; TODO: move this, it is no longer "javascript" support
-
-(define (expand-expr0 cx expr env)
-  (let-values (((e0 t0) (expand-expr cx expr env)))
-    e0))
-
-(define (render-class-is-class cx env cls val)
-
-  ;; The most reasonable thing to do might be to have a %desc-addr% special form that
-  ;; sees the right environment: (%desc-addr% ,name) .  It can assume that the poiner
-  ;; is nonnull, and it can even assume the argument is a name, I guess.
-  ;;
-  ;; Conceivably that could be an operator under %wasm%, for simplicity:
-  ;; (%wasm% i32 (%desc-addr% (get_local (%id% name))))
-  ;;
-  ;; Perhaps %object-desc% is the better name.
-  ;;
-  ;; Then we would add primitives %desc-length% to load the length of the supertype table
-  ;; and %desc-ref% to load the supertype table element at table offset k.  And then this
-  ;; would all be nicely abstract.  Probably ditto %desc-virtual% and %desc-id%.
-
-  ;; The next step here is obviously to turn object-desc et al into internal swat operators,
-  ;; and not need a wast escape.  And then since this is just swat, and no JS is required
-  ;; except for the field access, maybe avoid the wasm clause for the binding of name.
-
-  (let ((name (new-name cx "p"))
-        (addr (new-name cx "a")))
-    (expand-expr
-     cx
-     `(%let% ((,name (%wasm% anyref ,val)))
-        (%or% (%null?% ,name)
-              (%let% ((,addr (%wasm% i32 (%object-desc% (get_local (%id% ,name))))))
-                (%and% (>u (%wasm% i32 (%desc-length% (get_local (%id% ,addr))))
-                           ,(class.depth cls))
-                       (= (%wasm% i32 (%desc-load% (get_local (%id% ,addr)) ,(class.depth cls)))
-                          ,(class.host cls))))))
-     env)))
+;; TODO: This really breaks into several parts:
+;;
+;; (if (maybenull-anyref-is-null p)
+;;     (return #t))
+;; (let ((q (nonnull-anyref-as-Object-or-null p))
+;;   (if (null? q) (return #f))
+;;   (return (nonnull-class-is-class q)))
 
 (define (synthesize-test-anyref-is-class cx env name cls)
   (js-lib cx env name `(,*anyref-type*) *i32-type*
@@ -3034,24 +3075,6 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
   (let ((func (lookup-synthesized-func cx env
                                        (splice "_anyref_is_" (class.name cls))
                                        synthesize-test-anyref-is-class
-                                       cls)))
-    `(call ,(func.id func) ,val)))
-
-(define (synthesize-downcast-class-to-class cx env name cls)
-  (js-lib cx env name `(,*Object-type*) (class.type cls)
-          "
-function (p) {
-  if (p === null || ~a)
-    return p;
-  throw new Error('Failed to narrow to ~a' + p);
-}"
-          (js-class-downcast-test cx env 'p cls)
-          (class.name cls)))
-
-(define (render-downcast-class-to-class cx env cls val)
-  (let ((func (lookup-synthesized-func cx env
-                                       (splice "_downcast_class_to_" (class.name cls))
-                                       synthesize-downcast-class-to-class
                                        cls)))
     `(call ,(func.id func) ,val)))
 
