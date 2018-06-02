@@ -1876,7 +1876,7 @@ For detailed usage instructions see MANUAL.md.
              (cond ((String-type? t)
                     (values e target-type))
                    ((anyref-type? t)
-                    (values (render-downcast-anyref-to-string cx env e) target-type))
+                    (values (render-downcast-maybenull-anyref-to-string cx env e) target-type))
                    (else
                     (fail "Bad source type in 'as'" t expr))))
             ((class-type? target-type)
@@ -1893,7 +1893,7 @@ For detailed usage instructions see MANUAL.md.
                               (else
                                (fail "Types in 'as' are unrelated" expr)))))
                      ((anyref-type? t)
-                      (values (render-downcast-anyref-to-class cx env target-cls e)
+                      (values (render-downcast-maybenull-anyref-to-class cx env target-cls e)
                               (class.type target-cls)))
                      (else
                       (fail "Expression in 'as' is not of class type" expr)))))
@@ -1901,7 +1901,7 @@ For detailed usage instructions see MANUAL.md.
              (cond ((and (Vector-type? t) (type=? target-type t))
                     (values e target-type))
                    ((anyref-type? t)
-                    (values (render-downcast-anyref-to-vector cx env e (type.vector-element target-type))
+                    (values (render-downcast-maybenull-anyref-to-vector cx env e (type.vector-element target-type))
                             target-type))
                    (else
                     (fail "Bad source type in 'as'" t expr))))
@@ -3078,7 +3078,7 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
                                        cls)))
     `(call ,(func.id func) ,val)))
 
-(define (synthesize-downcast-anyref-to-class cx env name cls)
+(define (synthesize-downcast-maybenull-anyref-to-class cx env name cls)
   (js-lib cx env name `(,*anyref-type*) (class.type cls)
           "
 function (p) {
@@ -3089,10 +3089,10 @@ function (p) {
           (js-class-downcast-test cx env 'p cls)
           (class.name cls)))
 
-(define (render-downcast-anyref-to-class cx env cls val)
+(define (render-downcast-maybenull-anyref-to-class cx env cls val)
   (let ((func (lookup-synthesized-func cx env
                                        (splice "_downcast_anyref_to_" (class.name cls))
-                                       synthesize-downcast-anyref-to-class
+                                       synthesize-downcast-maybenull-anyref-to-class
                                        cls)))
     `(call ,(func.id func) ,val)))
 
@@ -3271,19 +3271,19 @@ function (s) {
   (let ((func (lookup-synthesized-func cx env '_anyref_is_string synthesize-anyref-is-string)))
   `(call ,(func.id func) ,val)))
 
-;; FIXME: null pointer
-
-(define (synthesize-downcast-anyref-to-string cx env name)
+(define (synthesize-downcast-maybenull-anyref-to-string cx env name)
   (js-lib cx env name `(,*anyref-type*) *String-type*
           "
 function (p) {
-  if (!(p instanceof String))
+  if (p === null || !(p instanceof String))
     throw new Error('Failed to narrow to string' + p);
   return p;
 }"))
 
-(define (render-downcast-anyref-to-string cx env val)
-  (let ((func (lookup-synthesized-func cx env '_downcast_anyref_to_string synthesize-downcast-anyref-to-string)))
+(define (render-downcast-maybenull-anyref-to-string cx env val)
+  (let ((func (lookup-synthesized-func cx env
+                                       '_downcast_anyref_to_string
+                                       synthesize-downcast-maybenull-anyref-to-string)))
     `(call ,(func.id func) ,val)))
 
 ;; Vectors
@@ -3372,21 +3372,19 @@ function (p,i,v) {
                                        element-type)))
     `(call ,(func.id func) ,expr)))
 
-;; FIXME: null pointer?
-
-(define (synthesize-downcast-anyref-to-vector cx env name element-type)
+(define (synthesize-downcast-maybenull-anyref-to-vector cx env name element-type)
   (let ((vt (type.vector-of element-type)))
     (js-lib cx env name `(,*anyref-type*) vt
           "
 function (p) {
-  if (!(Array.isArray(p) && p._tag===~a))
+  if (p == null || !Array.isArray(p) || p._tag!==~a)
     throw new Error('Failed to narrow to Vector' + p);
   return p;
 }" (type.vector-id vt))))
 
-(define (render-downcast-anyref-to-vector cx env expr element-type)
+(define (render-downcast-maybenull-anyref-to-vector cx env expr element-type)
   (let ((func (lookup-synthesized-func cx env (splice "_downcast_anyref_to_vector_" (render-element-type element-type))
-                                       synthesize-downcast-anyref-to-vector
+                                       synthesize-downcast-maybenull-anyref-to-vector
                                        element-type)))
     `(call ,(func.id func) ,expr)))
 
