@@ -514,7 +514,10 @@ New        ::= (new TypeName Expr ...)
 TypeTest   ::= (is TypeName Expr)
 
    Expr must have static reference type T and TypeName must be a ClassName or
-   string or (Vector T).  Let V be the value of Expr.
+   string or (Vector U).  Let V be the value of Expr.
+
+   If V is null then:
+     Return 0.
 
    If TypeName is anyref then:
      Return 1.
@@ -553,17 +556,19 @@ TypeCast   ::= (as TypeName Expr)
    If TypeName is string then:
      T must be string or anyref.
 
-     If V's dynamic type is string then return V with static type string,
-     otherwise trap.
+     If V is not null and V's dynamic type is string then return V with
+     static type string, otherwise trap.
 
    If TypeName is (Vector T) then:
      T must be (Vector T) or anyref.
 
-     If V's dynamic type is (Vector T) then return V with static type (Vector
-     T), otherwise trap.
+     If V is null or V's dynamic type is (Vector T) then return V with
+     static type (Vector T), otherwise trap.
 
    If TypeName is a ClassName then:
      T must be a supertype or subtype of TypeName.
+
+     If V is null then return V with static type TypeName.
 
      If T is a subtype of TypeName, or if V's dynamic type is TypeName or a
      subtype of TypeName then return V with static type TypeName; otherwise

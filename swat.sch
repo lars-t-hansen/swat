@@ -1830,7 +1830,7 @@ For detailed usage instructions see MANUAL.md.
              (cond ((String-type? t)
                     `(block i32 ,e drop (i32.const 1)))
                    ((anyref-type? t)
-                    (values (render-anyref-is-string cx env e) *i32-type*))
+                    (values (render-maybenull-anyref-is-string cx env e) *i32-type*))
                    (else
                     (fail "Bad source type in 'is'" t expr))))
             ((class-type? target-type)
@@ -1844,14 +1844,14 @@ For detailed usage instructions see MANUAL.md.
                               (else
                                (fail "Types in 'is' are unrelated" expr)))))
                      ((anyref-type? t)
-                      (values (render-anyref-is-class cx env target-cls e) *i32-type*))
+                      (values (render-maybenull-anyref-is-class cx env target-cls e) *i32-type*))
                      (else
                       (fail "Expression in 'is' is not of class type" expr)))))
             ((Vector-type? target-type)
              (cond ((and (Vector-type? t) (type=? target-type t))
                     `(block i32 ,e dro (i32.const 1)))
                    ((anyref-type? t)
-                    (values (render-anyref-is-vector cx env e (type.vector-element target-type)) *i32-type*))
+                    (values (render-maybenull-anyref-is-vector cx env e (type.vector-element target-type)) *i32-type*))
                    (else
                     (fail "Bad source type in 'is'" t expr))))
             (else
@@ -1876,7 +1876,7 @@ For detailed usage instructions see MANUAL.md.
              (cond ((String-type? t)
                     (values e target-type))
                    ((anyref-type? t)
-                    (values (render-downcast-maybenull-anyref-to-string cx env e) target-type))
+                    (downcast-maybenull-anyref-to-string cx env e))
                    (else
                     (fail "Bad source type in 'as'" t expr))))
             ((class-type? target-type)
@@ -1893,7 +1893,7 @@ For detailed usage instructions see MANUAL.md.
                               (else
                                (fail "Types in 'as' are unrelated" expr)))))
                      ((anyref-type? t)
-                      (values (render-downcast-maybenull-anyref-to-class cx env target-cls e)
+                      (values (render-downcast-maybenull-anyref-to-class cx env target-cls e t)
                               (class.type target-cls)))
                      (else
                       (fail "Expression in 'as' is not of class type" expr)))))
@@ -1917,7 +1917,7 @@ For detailed usage instructions see MANUAL.md.
      cx
      `(%let% ((,obj (%wasm% ,valty ,val)))
         (%if% (%null?% ,obj)
-              #t
+              #f
               (%let% ((,desc (%object-desc% ,obj)))
                 (%and% (%>u% (%desc-length% ,desc) ,(class.depth cls))
                        (%=% (%desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))
@@ -1939,6 +1939,28 @@ For detailed usage instructions see MANUAL.md.
                             (%wasm% ,(class.type cls) (get_local (%id% ,obj)))
                             (%wasm% ,(class.type cls) (unreachable)))
                       (%wasm% ,(class.type cls) (unreachable))))))
+     env)))
+
+;; Anyref unboxing:
+;;
+;; - anyref holds only pointers or null (ie it's a generic nullable pointer)
+;; - there are primitive downcasts from anyref to Wasm object, string, or generic array
+;; - those downcasts all allow for null values - null is propagated
+;; - nonnull values of the wrong types cause a trap
+;; - for array and object there must then be a subsequent test for the
+;;   correct type
+;; - for string there must then be a subsequent test for null, since strings are
+;;   not nullable
+
+(define (downcast-maybenull-anyref-to-string cx env expr)
+  (let ((obj (new-name cx "p")))
+    (expand-expr
+     cx
+     `(%let% ((,obj (%wasm% anyref ,(render-unbox-maybenull-anyref-as-string cx env expr))))
+        (%wasm% ,*String-type*
+                (if anyref (ref.is_null (get_local (%id% ,obj)))
+                    (unreachable)
+                    (get_local (%id% ,obj)))))
      env)))
 
 ;; `obj` is a wasm expression, `objty` its type object, and `vid` is the virtual index.
@@ -3058,23 +3080,15 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
                                        desired)))
     `(call ,(func.id func) ,expr)))
 
-;; TODO: This really breaks into several parts:
-;;
-;; (if (maybenull-anyref-is-null p)
-;;     (return #t))
-;; (let ((q (nonnull-anyref-as-Object-or-null p))
-;;   (if (null? q) (return #f))
-;;   (return (nonnull-class-is-class q)))
-
-(define (synthesize-test-anyref-is-class cx env name cls)
+(define (synthesize-test-maybenull-anyref-is-class cx env name cls)
   (js-lib cx env name `(,*anyref-type*) *i32-type*
-          "function (p) { return p === null || (typeof p._desc_ === 'object' && ~a) }"
+          "function (p) { return p !== null && typeof p._desc_ === 'object' && ~a }"
           (js-class-downcast-test cx env 'p cls)))
 
-(define (render-anyref-is-class cx env cls val)
+(define (render-maybenull-anyref-is-class cx env cls val)
   (let ((func (lookup-synthesized-func cx env
                                        (splice "_anyref_is_" (class.name cls))
-                                       synthesize-test-anyref-is-class
+                                       synthesize-test-maybenull-anyref-is-class
                                        cls)))
     `(call ,(func.id func) ,val)))
 
@@ -3089,7 +3103,7 @@ function (p) {
           (js-class-downcast-test cx env 'p cls)
           (class.name cls)))
 
-(define (render-downcast-maybenull-anyref-to-class cx env cls val)
+(define (render-downcast-maybenull-anyref-to-class cx env cls val valty)
   (let ((func (lookup-synthesized-func cx env
                                        (splice "_downcast_anyref_to_" (class.name cls))
                                        synthesize-downcast-maybenull-anyref-to-class
@@ -3264,26 +3278,28 @@ function (s) {
   (let ((func (lookup-synthesized-func cx env '_upcast_string_to_anyref synthesize-upcast-string-to-anyref)))
     `(call ,(func.id func) ,expr)))
 
-(define (synthesize-anyref-is-string cx env name)
-  (js-lib cx env '_anyref_is_string `(,*anyref-type*) *i32-type* "function (p) { return p instanceof String }"))
+(define (synthesize-maybenull-anyref-is-string cx env name)
+  (js-lib cx env '_anyref_is_string `(,*anyref-type*) *i32-type*
+          "
+function (p) { return p !== null && p instanceof String }"))
 
-(define (render-anyref-is-string cx env val)
-  (let ((func (lookup-synthesized-func cx env '_anyref_is_string synthesize-anyref-is-string)))
+(define (render-maybenull-anyref-is-string cx env val)
+  (let ((func (lookup-synthesized-func cx env '_anyref_is_string synthesize-maybenull-anyref-is-string)))
   `(call ,(func.id func) ,val)))
 
-(define (synthesize-downcast-maybenull-anyref-to-string cx env name)
+(define (synthesize-unbox-maybenull-anyref-as-string cx env name)
   (js-lib cx env name `(,*anyref-type*) *String-type*
           "
 function (p) {
-  if (p === null || !(p instanceof String))
+  if (p !== null && !(p instanceof String))
     throw new Error('Failed to narrow to string' + p);
   return p;
 }"))
 
-(define (render-downcast-maybenull-anyref-to-string cx env val)
+(define (render-unbox-maybenull-anyref-as-string cx env val)
   (let ((func (lookup-synthesized-func cx env
-                                       '_downcast_anyref_to_string
-                                       synthesize-downcast-maybenull-anyref-to-string)))
+                                       '_unbox_anyref_as_string
+                                       synthesize-unbox-maybenull-anyref-as-string)))
     `(call ,(func.id func) ,val)))
 
 ;; Vectors
@@ -3360,15 +3376,15 @@ function (p,i,v) {
                                        element-type)))
     `(call ,(func.id func) ,expr)))
 
-(define (synthesize-anyref-is-vector cx env name element-type)
+(define (synthesize-maybenull-anyref-is-vector cx env name element-type)
   (let ((vt (type.vector-of element-type)))
     (js-lib cx env name `(,*anyref-type*) *i32-type*
-            "function (p) { return Array.isArray(p) && p._tag===~a }"
+            "function (p) { return p !== null && Array.isArray(p) && p._tag===~a }"
             (type.vector-id vt))))
 
-(define (render-anyref-is-vector cx env expr element-type)
+(define (render-maybenull-anyref-is-vector cx env expr element-type)
   (let ((func (lookup-synthesized-func cx env (splice "_anyref_is_vector_" (render-element-type element-type))
-                                       synthesize-anyref-is-vector
+                                       synthesize-maybenull-anyref-is-vector
                                        element-type)))
     `(call ,(func.id func) ,expr)))
 

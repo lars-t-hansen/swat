@@ -12,7 +12,10 @@ For flat descriptors:
 * Clean up the comments about the vtable layout.
 * Merge back to main.
 
+Bugfixes:
+
+(nothing)
+
 General hygiene:
 
-* Add maybenull / nonnull to names as appropriate to expose assumptions
-
+* expand-expr should and functions in general should take (cx env expr) not (cx expr env)
