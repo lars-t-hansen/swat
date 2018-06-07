@@ -1893,8 +1893,7 @@ For detailed usage instructions see MANUAL.md.
                               (else
                                (fail "Types in 'as' are unrelated" expr)))))
                      ((anyref-type? t)
-                      (values (render-downcast-maybenull-anyref-to-class cx env target-cls e t)
-                              (class.type target-cls)))
+                      (downcast-maybenull-anyref-to-class cx env target-cls e))
                      (else
                       (fail "Expression in 'as' is not of class type" expr)))))
             ((Vector-type? target-type)
@@ -1951,6 +1950,11 @@ For detailed usage instructions see MANUAL.md.
 ;;   correct type
 ;; - for string there must then be a subsequent test for null, since strings are
 ;;   not nullable
+
+(define (downcast-maybenull-anyref-to-class cx env cls val)
+  (downcast-maybenull-class-to-class cx env cls
+                                     (render-unbox-maybenull-anyref-as-object cx env val)
+                                     *Object-type*))
 
 (define (downcast-maybenull-anyref-to-string cx env expr)
   (let ((obj (new-name cx "p")))
@@ -3092,22 +3096,19 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
                                        cls)))
     `(call ,(func.id func) ,val)))
 
-(define (synthesize-downcast-maybenull-anyref-to-class cx env name cls)
-  (js-lib cx env name `(,*anyref-type*) (class.type cls)
+(define (synthesize-unbox-maybenull-anyref-as-object cx env name)
+  (js-lib cx env name `(,*anyref-type*) *Object-type*
           "
 function (p) {
-  if (p === null || (typeof p._desc_ === 'object' && ~a))
+  if (p === null || typeof p._desc_ === 'object')
     return p;
-  throw new Error('Failed to narrow to ~a' + p);
-}"
-          (js-class-downcast-test cx env 'p cls)
-          (class.name cls)))
+  throw new Error('Failed to unbox anyref as object');
+}"))
 
-(define (render-downcast-maybenull-anyref-to-class cx env cls val valty)
+(define (render-unbox-maybenull-anyref-as-object cx env val)
   (let ((func (lookup-synthesized-func cx env
-                                       (splice "_downcast_anyref_to_" (class.name cls))
-                                       synthesize-downcast-maybenull-anyref-to-class
-                                       cls)))
+                                       '_unbox_anyref_as_object
+                                       synthesize-unbox-maybenull-anyref-as-object)))
     `(call ,(func.id func) ,val)))
 
 ;; TODO: here we assume JS syntax for the field-name.  We can work around it for
