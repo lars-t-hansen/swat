@@ -55,31 +55,32 @@
 
 (define (main)
 
-  (define-values (files mode stdout-mode expect-success) (parse-command-line (cdr (command-line))))
+  (define-values (files mode stdout-mode wizard? expect-success)
+                 (parse-command-line (cdr (command-line))))
 
   (define (process-input-file input-filename)
     (let ((root (substring input-filename 0 (- (string-length input-filename) 5))))
       (call-with-input-file input-filename
         (lambda (in)
           (cond (stdout-mode
-                 (process-input mode input-filename in (current-output-port) root))
+                 (process-input mode wizard? input-filename in (current-output-port) root))
 
                 ((not expect-success)
-                 (process-input mode input-filename in (open-output-string) root))
+                 (process-input mode wizard? input-filename in (open-output-string) root))
 
                 ((or (eq? mode 'js) (eq? mode 'js-bytes) (eq? mode 'js-wasm))
                  (let ((output-filename (string-append root ".js")))
                    (remove-file output-filename)
                    (call-with-output-file output-filename
                      (lambda (out)
-                       (process-input mode input-filename in out root)))))
+                       (process-input mode wizard? input-filename in out root)))))
 
                 ((eq? mode 'wast)
                  (let ((output-filename (string-append root ".wast")))
                    (remove-file output-filename)
                    (call-with-output-file output-filename
                      (lambda (out)
-                       (process-input mode input-filename in out root)))))
+                       (process-input mode wizard? input-filename in out root)))))
 
                 (else
                  (canthappen)))))))
@@ -99,6 +100,7 @@
   (define js-bytes-mode #f)
   (define js-wasm-mode #f)
   (define stdout-mode #f)
+  (define wizard-mode #f)
   (define expect-success #t)
   (define files '())
 
@@ -126,6 +128,7 @@
                          (js-wasm-mode  'js-wasm)
                          (else          'wast))
                    stdout-mode
+                   wizard-mode
                    expect-success))
           (else
            (let* ((arg (car args))
@@ -144,6 +147,9 @@
                     (loop (cdr args)))
                    ((or (string=? arg "--fail") (string=? arg "-f"))
                     (set! expect-success #f)
+                    (loop (cdr args)))
+                   ((string=? arg "--wizard")
+                    (set! wizard-mode #t)
                     (loop (cdr args)))
                    ((or (string=? arg "--help") (string=? arg "-h"))
                     (usage)
@@ -215,7 +221,7 @@ For detailed usage instructions see MANUAL.md.
 ;; Generic source->object file processor.  The input and output ports may be
 ;; string ports, and names may reflect that.
 
-(define (process-input mode input-filename in out root)
+(define (process-input mode wizard? input-filename in out root)
 
   (define (defmodule? phrase)
     (and (pair? phrase) (eq? (car phrase) 'defmodule)))
@@ -243,7 +249,7 @@ For detailed usage instructions see MANUAL.md.
       (cond ((defmodule? phrase)
              (set! num-modules (+ num-modules 1))
              (let*-values (((support)          (make-js-support))
-                           ((module-name code) (expand-module phrase support)))
+                           ((module-name code) (expand-module phrase support wizard?)))
 
                (case mode
                  ((js js-bytes js-wasm)
@@ -369,7 +375,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define-record-type cx
   (%make-cx% slots gensym-id vid support name table-index table-elements types strings string-id vector-id
-             functions globals memory data)
+             functions globals memory data wizard?)
   cx?
   (slots          cx.slots          cx.slots-set!)          ; Slots storage (during body expansion)
   (gensym-id      cx.gensym-id      cx.gensym-id-set!)      ; Gensym ID
@@ -389,12 +395,13 @@ For detailed usage instructions see MANUAL.md.
   (functions      cx.functions      cx.functions-set!)      ; List of all functions in order encountered, reversed
   (globals        cx.globals        cx.globals-set!)        ; List of all globals in order encountered, reversed
   (memory         cx.memory         cx.memory-set!)         ; Number of flat-memory bytes allocated so far
-  (data           cx.data           cx.data-set!))          ; List of i32 values for data, reversed
+  (data           cx.data           cx.data-set!)           ; List of i32 values for data, reversed
+  (wizard?        cx.wizard?))                              ; #t for wizard-mode output
 
-(define (make-cx name support)
+(define (make-cx name support wizard?)
   (%make-cx% #|slots|#  #f #|gensym-id|# 0 #|vid|# 0 support name #|table-index|# 0 #|table-elements|# '()
              #|types|# '() #|strings|# '() #|string-id|# 0 #|vector-id|# 0 #|functions|# '() #|globals|# '()
-             #|memory|# 0 #|data|# '()))
+             #|memory|# 0 #|data|# '() wizard?))
 
 ;; Gensym.
 
@@ -433,12 +440,12 @@ For detailed usage instructions see MANUAL.md.
 ;; imports, which are given the lowest indices.  The second pass defines other
 ;; functions and globals.  Then the third phase expands function bodies.
 
-(define (expand-module m support)
+(define (expand-module m support wizard?)
   (check-list-atleast m 2 "Bad module" m)
   (check-symbol (cadr m) "Bad module name" m)
   (let* ((env  (make-standard-env))
          (name (symbol->string (cadr m)))
-         (cx   (make-cx name support))
+         (cx   (make-cx name support wizard?))
          (body (cddr m)))
     (for-each (lambda (d)
                 (check-list-atleast d 1 "Bad top-level phrase" d)
