@@ -435,7 +435,7 @@ function run() {
 }
 
 Lex.compile().then(function(module) {
-  lex = new WebAssembly.Instance(Lex.module,
+  lex = new WebAssembly.Instance(module,
                                  {lib: Lex.lib,
                                   '': {'getchar': getchar,
                                        'token-clear': token_clear,
