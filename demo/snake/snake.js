@@ -53,8 +53,8 @@ function (len, init) {
 '_new_Wall':function (element,rendering) { return new self.types.Wall({_desc_:self.desc.Wall,element,rendering}) },
 '_upcast_class_to_Tile':function (p) { return p },
 '_new_Empty':function (element) { return new self.types.Empty({_desc_:self.desc.Empty,element}) },
-'_get_Board_tiles':function (p) { return p.tiles },
-'_get_Board_width':function (p) { return p.width },
+'_maybenull_get_Board_tiles':function (p) { return p.tiles },
+'_maybenull_get_Board_width':function (p) { return p.width },
 '_maybenull_vector_ref_Tile':
 function (p,i) {
   if ((i >>> 0) >= p._length_)
@@ -67,19 +67,19 @@ function (p,i,v) {
     throw new RangeError('Out of range: ' + i + ' for ' + p._length_);
   p._memory_[i] = v;
 },
-'_get_Tile_element':function (p) { return p.element },
-'_set_Tile_element':function (p, v) { p.element = v },
+'_maybenull_get_Tile_element':function (p) { return p.element },
+'_maybenull_set_Tile_element':function (p, v) { p.element = v },
 '_desc_':function (p) { return p._desc_ },
-'_get_Wall_element':function (p) { return p.element },
-'_get_Wall_rendering':function (p) { return p.rendering },
-'_get_Board_height':function (p) { return p.height },
+'_maybenull_get_Wall_element':function (p) { return p.element },
+'_maybenull_get_Wall_rendering':function (p) { return p.rendering },
+'_maybenull_get_Board_height':function (p) { return p.height },
 '_upcast_class_to_anyref':function (p) { return p },
 '_new_Body':function (element,younger_y,younger_x) { return new self.types.Body({_desc_:self.desc.Body,element,younger_y,younger_x}) },
 '_new_Food':function (element) { return new self.types.Food({_desc_:self.desc.Food,element}) },
-'_set_Body_younger_y':function (p, v) { p.younger_y = v },
-'_set_Body_younger_x':function (p, v) { p.younger_x = v },
-'_get_Body_younger_y':function (p) { return p.younger_y },
-'_get_Body_younger_x':function (p) { return p.younger_x },
+'_maybenull_set_Body_younger_y':function (p, v) { p.younger_y = v },
+'_maybenull_set_Body_younger_x':function (p, v) { p.younger_x = v },
+'_maybenull_get_Body_younger_y':function (p) { return p.younger_y },
+'_maybenull_get_Body_younger_x':function (p) { return p.younger_x },
 }
  };
  return self;

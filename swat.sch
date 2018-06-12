@@ -1702,7 +1702,7 @@ For detailed usage instructions see MANUAL.md.
                (let ((val+ty (widen-value cx env ev tv field-type)))
                  (if (not val+ty)
                      (check-same-type field-type tv "'set!' object field" expr))
-                 (values (render-field-update cx env cls field-name base-expr (car val+ty))
+                 (values (render-maybenull-field-update cx env cls field-name base-expr (car val+ty))
                          *void-type*))))
             (else
              (fail "Illegal lvalue" expr))))))
@@ -1933,6 +1933,8 @@ For detailed usage instructions see MANUAL.md.
                        (%=% (%desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))
      env)))
 
+;; TODO: the render here could be a primitive?  %nonnull-anyref-unbox-object%
+
 (define (maybenull-anyref-is-class cx env cls val valty)
   (let ((obj  (new-name cx "p"))
         (desc (new-name cx "a"))
@@ -1969,10 +1971,14 @@ For detailed usage instructions see MANUAL.md.
                       (%wasm% ,(class.type cls) (unreachable))))))
      env)))
 
+;; TODO: the render here could be a primitive?  %maybenull-anyref-unbox-object%
+
 (define (downcast-maybenull-anyref-to-class cx env cls val)
   (downcast-maybenull-class-to-class cx env cls
                                      (render-unbox-maybenull-anyref-as-object cx env val)
                                      *Object-type*))
+
+;; TODO: the render here could be a primitive?  %maybenull-anyref-unbox-string%
 
 (define (downcast-maybenull-anyref-to-string cx env expr)
   (let ((obj (new-name cx "p")))
@@ -2433,7 +2439,7 @@ For detailed usage instructions see MANUAL.md.
   (check-list expr 2 "Bad accessor" expr)
   (let-values (((base-expr cls field-name field-type)
                 (process-accessor-expression cx expr env)))
-    (values (render-field-access cx env cls field-name base-expr)
+    (values (render-maybenull-field-access cx env cls field-name base-expr)
             field-type)))
 
 ;; Returns rendered-base-expr class field-name field-type
@@ -3119,27 +3125,27 @@ function (p) {
 ;; the field access but not for the function name.  We need some kind of
 ;; mangling.
 
-(define (synthesize-field-access cx env name cls field-name)
+(define (synthesize-maybenull-field-access cx env name cls field-name)
   (let* ((field      (assq field-name (class.fields cls)))
          (field-type (cadr field)))
     (js-lib cx env name `(,(class.type cls)) field-type "function (p) { return p.~a }" field-name)))
 
-(define (render-field-access cx env cls field-name base-expr)
+(define (render-maybenull-field-access cx env cls field-name base-expr)
   (let ((func (lookup-synthesized-func cx env
-                                       (splice "_get_" (class.name cls) "_" field-name)
-                                       synthesize-field-access
+                                       (splice "_maybenull_get_" (class.name cls) "_" field-name)
+                                       synthesize-maybenull-field-access
                                        cls field-name)))
     `(call ,(func.id func) ,base-expr)))
 
-(define (synthesize-field-update cx env name cls field-name)
+(define (synthesize-maybenull-field-update cx env name cls field-name)
   (let* ((field      (assq field-name (class.fields cls)))
          (field-type (cadr field)))
     (js-lib cx env name `(,(class.type cls) ,field-type) *void-type* "function (p, v) { p.~a = v }" field-name)))
 
-(define (render-field-update cx env cls field-name base-expr val-expr)
+(define (render-maybenull-field-update cx env cls field-name base-expr val-expr)
   (let ((func (lookup-synthesized-func cx env
-                                       (splice "_set_" (class.name cls) "_" field-name)
-                                       synthesize-field-update
+                                       (splice "_maybenull_set_" (class.name cls) "_" field-name)
+                                       synthesize-maybenull-field-update
                                        cls field-name)))
     `(call ,(func.id func) ,base-expr ,val-expr)))
 
