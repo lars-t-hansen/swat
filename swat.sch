@@ -1844,7 +1844,7 @@ For detailed usage instructions see MANUAL.md.
                               (else
                                (fail "Types in 'is' are unrelated" expr)))))
                      ((anyref-type? t)
-                      (values (render-maybenull-anyref-is-class cx env target-cls e) *i32-type*))
+                      (maybenull-anyref-is-class cx env target-cls e t))
                      (else
                       (fail "Expression in 'is' is not of class type" expr)))))
             ((Vector-type? target-type)
@@ -1907,6 +1907,17 @@ For detailed usage instructions see MANUAL.md.
             (else
              (fail "Bad target type in 'is'" target-type expr))))))
 
+;; Anyref unboxing:
+;;
+;; - anyref holds only pointers or null (ie it's a generic nullable pointer)
+;; - there are primitive downcasts from anyref to Wasm object, string, or generic array
+;; - those downcasts all allow for null values - null is propagated [clean this up]
+;; - nonnull values of the wrong types cause a trap
+;; - for array and object there must then be a subsequent test for the
+;;   correct type
+;; - for string there must then be a subsequent test for null, since strings are
+;;   not nullable
+
 ;; `val` is a wasm expression and `valty` is its type object.
 
 (define (maybenull-class-is-class cx env cls val valty)
@@ -1920,6 +1931,24 @@ For detailed usage instructions see MANUAL.md.
               (%let% ((,desc (%object-desc% ,obj)))
                 (%and% (%>u% (%desc-length% ,desc) ,(class.depth cls))
                        (%=% (%desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))
+     env)))
+
+(define (maybenull-anyref-is-class cx env cls val valty)
+  (let ((obj  (new-name cx "p"))
+        (desc (new-name cx "a"))
+        (tmp  (new-name cx "t")))
+    (expand-expr
+     cx
+     `(%let% ((,obj (%wasm% ,valty ,val)))
+        (%if% (%null?% ,obj)
+              #f
+              (%let% ((,tmp (%wasm% ,*Object-type*
+                                    ,(render-maybe-unbox-nonnull-anyref-as-object cx env `(get_local (%id% ,obj))))))
+                 (%if% (%null?% ,tmp)
+                       #f
+                       (%let% ((,desc (%object-desc% ,tmp)))
+                          (%and% (%>u% (%desc-length% ,desc) ,(class.depth cls))
+                                 (%=% (%desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))))
      env)))
 
 ;; `val` is a wasm expression and `valty` is its type object.
@@ -1939,17 +1968,6 @@ For detailed usage instructions see MANUAL.md.
                             (%wasm% ,(class.type cls) (unreachable)))
                       (%wasm% ,(class.type cls) (unreachable))))))
      env)))
-
-;; Anyref unboxing:
-;;
-;; - anyref holds only pointers or null (ie it's a generic nullable pointer)
-;; - there are primitive downcasts from anyref to Wasm object, string, or generic array
-;; - those downcasts all allow for null values - null is propagated
-;; - nonnull values of the wrong types cause a trap
-;; - for array and object there must then be a subsequent test for the
-;;   correct type
-;; - for string there must then be a subsequent test for null, since strings are
-;;   not nullable
 
 (define (downcast-maybenull-anyref-to-class cx env cls val)
   (downcast-maybenull-class-to-class cx env cls
@@ -3018,19 +3036,6 @@ For detailed usage instructions see MANUAL.md.
                              (comma-separate (map number->string table)))))
             (classes env)))
 
-(define (synthesize-js-class-downcast-test cx env name)
-  ;; The signature is immaterial, this is only called from JS
-  (js-lib cx env name '() *void-type*
-          "
-function(rhs_depth, rhs_id, id_offset, lhs_table) {
-  return lhs_table[id_offset + 1] > rhs_depth && lhs_table[id_offset + 2 + rhs_depth] == rhs_id;
-}
-"))
-
-(define (js-class-downcast-test cx env lhs-ptr cls)
-  (lookup-synthesized-func cx env '_test synthesize-js-class-downcast-test)
-  (format #f "self.lib._test(~a, ~a, ~a._desc_.id_offset, ~a._desc_.table)" (class.depth cls) (class.host cls) lhs-ptr lhs-ptr))
-
 ;; Once we have field access in wasm the the 'get descriptor' operation will be
 ;; subtype-polymorphic, it takes an Object that has a _desc_ field and returns
 ;; an i32.  (Presumably it actually takes an Object that has an i32 field at
@@ -3084,18 +3089,6 @@ function(rhs_depth, rhs_id, id_offset, lhs_table) {
                                        desired)))
     `(call ,(func.id func) ,expr)))
 
-(define (synthesize-test-maybenull-anyref-is-class cx env name cls)
-  (js-lib cx env name `(,*anyref-type*) *i32-type*
-          "function (p) { return p !== null && typeof p._desc_ === 'object' && ~a }"
-          (js-class-downcast-test cx env 'p cls)))
-
-(define (render-maybenull-anyref-is-class cx env cls val)
-  (let ((func (lookup-synthesized-func cx env
-                                       (splice "_anyref_is_" (class.name cls))
-                                       synthesize-test-maybenull-anyref-is-class
-                                       cls)))
-    `(call ,(func.id func) ,val)))
-
 (define (synthesize-unbox-maybenull-anyref-as-object cx env name)
   (js-lib cx env name `(,*anyref-type*) *Object-type*
           "
@@ -3109,6 +3102,21 @@ function (p) {
   (let ((func (lookup-synthesized-func cx env
                                        '_unbox_anyref_as_object
                                        synthesize-unbox-maybenull-anyref-as-object)))
+    `(call ,(func.id func) ,val)))
+
+(define (synthesize-maybe-unbox-nonnull-anyref-as-object cx env name)
+  (js-lib cx env name `(,*anyref-type*) *Object-type*
+          "
+function (p) {
+  if (p instanceof self.types.Object)
+    return p;
+  return null;
+}"))
+
+(define (render-maybe-unbox-nonnull-anyref-as-object cx env val)
+  (let ((func (lookup-synthesized-func cx env
+                                       '_maybe_unbox_nonnull_anyref_as_object
+                                       synthesize-maybe-unbox-nonnull-anyref-as-object)))
     `(call ,(func.id func) ,val)))
 
 ;; TODO: here we assume JS syntax for the field-name.  We can work around it for
