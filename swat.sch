@@ -1638,10 +1638,10 @@ For detailed usage instructions see MANUAL.md.
   (define-env-global! env 'vector->string (make-expander 'vector->string expand-vector->string '(precisely 2)))
   (define-env-global! env 'string->vector (make-expander 'string->vector expand-string->vector '(precisely 2)))
   (define-env-global! env '%object-desc% (make-expander '%object-desc% expand-object-desc '(precisely 2)))
-  (define-env-global! env '%desc-id% (make-expander '%desc-id% expand-desc-id '(precisely 2)))
-  (define-env-global! env '%desc-length% (make-expander '%desc-length% expand-desc-length '(precisely 2)))
-  (define-env-global! env '%desc-ref% (make-expander '%desc-ref% expand-desc-ref '(precisely 3)))
-  (define-env-global! env '%desc-virtual% (make-expander '%desc-virtual% expand-desc-virtual '(precisely 3))))
+  (define-env-global! env '%object-desc-id% (make-expander '%object-desc-id% expand-object-desc-id '(precisely 2)))
+  (define-env-global! env '%object-desc-length% (make-expander '%object-desc-length% expand-object-desc-length '(precisely 2)))
+  (define-env-global! env '%object-desc-ref% (make-expander '%object-desc-ref% expand-object-desc-ref '(precisely 3)))
+  (define-env-global! env '%object-desc-virtual% (make-expander '%object-desc-virtual% expand-object-desc-virtual '(precisely 3))))
 
 ;; Primitive syntax
 
@@ -1929,8 +1929,8 @@ For detailed usage instructions see MANUAL.md.
         (%if% (%null?% ,obj)
               #f
               (%let% ((,desc (%object-desc% ,obj)))
-                (%and% (%>u% (%desc-length% ,desc) ,(class.depth cls))
-                       (%=% (%desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))
+                (%and% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
+                       (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))
      env)))
 
 ;; TODO: the render here could be a primitive?  %nonnull-anyref-unbox-object%
@@ -1949,8 +1949,8 @@ For detailed usage instructions see MANUAL.md.
                  (%if% (%null?% ,tmp)
                        #f
                        (%let% ((,desc (%object-desc% ,tmp)))
-                          (%and% (%>u% (%desc-length% ,desc) ,(class.depth cls))
-                                 (%=% (%desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))))
+                          (%and% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
+                                 (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))))
      env)))
 
 ;; `val` is a wasm expression and `valty` is its type object.
@@ -1964,8 +1964,8 @@ For detailed usage instructions see MANUAL.md.
         (%if% (%null?% ,obj)
               (%wasm% ,(class.type cls) (get_local (%id% ,obj)))
               (%let% ((,desc (%object-desc% ,obj)))
-                (%if% (%>u% (%desc-length% ,desc) ,(class.depth cls))
-                      (%if% (%=% (%desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))
+                (%if% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
+                      (%if% (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))
                             (%wasm% ,(class.type cls) (get_local (%id% ,obj)))
                             (%wasm% ,(class.type cls) (unreachable)))
                       (%wasm% ,(class.type cls) (unreachable))))))
@@ -1996,7 +1996,7 @@ For detailed usage instructions see MANUAL.md.
 (define (resolve-nonnull-virtual cx env obj objty vid)
   (expand-expr
    cx
-   `(%desc-virtual% ,vid (%object-desc% (%wasm% ,objty ,obj)))
+   `(%object-desc-virtual% ,vid (%object-desc% (%wasm% ,objty ,obj)))
    env))
 
 ;; Inline wasm is not yet exposed to user code because it can be used to break
@@ -2046,15 +2046,15 @@ For detailed usage instructions see MANUAL.md.
            (if (not (= (length e) 2))
                (fail "Bad form"))
            (render-get-descriptor-addr cx env (descend (cadr e))))
-          ((eq? (car e) '%desc-length%)
+          ((eq? (car e) '%object-desc-length%)
            (if (not (= (length e) 2))
                (fail "Bad form"))
            `(i32.load offset = 4 ,(descend (cadr e))))
-          ((eq? (car e) '%desc-id%)
+          ((eq? (car e) '%object-desc-id%)
            (if (not (= (length e) 2))
                (fail "Bad form"))
            `(i32.load ,(descend (cadr e))))
-          ((eq? (car e) '%desc-load%)
+          ((eq? (car e) '%object-desc-load%)
            (if (or (not (= (length e) 3))
                    (not (integer? (caddr e)))
                    (not (exact? (caddr e)))
@@ -2669,27 +2669,27 @@ For detailed usage instructions see MANUAL.md.
     (check-class-type t0 "'%object-desc%'" expr)
     (values (render-get-descriptor-addr cx env e0) *i32-type*)))
 
-(define (expand-desc-id cx expr env)
+(define (expand-object-desc-id cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
-    (check-i32-type t0 "'%desc-id%'" expr)
+    (check-i32-type t0 "'%object-desc-id%'" expr)
     (values `(i32.load ,e0) *i32-type*)))
 
-(define (expand-desc-length cx expr env)
+(define (expand-object-desc-length cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
-    (check-i32-type t0 "'%desc-length%'" expr)
+    (check-i32-type t0 "'%object-desc-length%'" expr)
     (values `(i32.load offset = 4 ,e0) *i32-type*)))
 
-(define (expand-desc-ref cx expr env)
-  (check-u32-value (cadr expr) "'%desc-ref'" expr)
+(define (expand-object-desc-ref cx expr env)
+  (check-u32-value (cadr expr) "'%object-desc-ref%'" expr)
   (let-values (((e0 t0) (expand-expr cx (caddr expr) env)))
-    (check-i32-type t0 "'%desc-ref%'" expr)
+    (check-i32-type t0 "'%object-desc-ref%'" expr)
     (values `(i32.load offset = ,(+ 8 (* 4 (cadr expr))) ,e0) *i32-type*)))
 
-(define (expand-desc-virtual cx expr env)
+(define (expand-object-desc-virtual cx expr env)
   (let ((vid (cadr expr)))
-    (check-u32-value vid "'%desc-virtual'" expr)
+    (check-u32-value vid "'%object-desc-virtual%'" expr)
     (let-values (((e0 t0) (expand-expr cx (caddr expr) env)))
-      (check-i32-type t0 "'%desc-virtual%'" expr)
+      (check-i32-type t0 "'%object-desc-virtual%'" expr)
       (values `(i32.load (i32.sub ,e0 (i32.const ,(+ 4 (* 4 vid))))) *i32-type*))))
 
 ;; Type checking.
