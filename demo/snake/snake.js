@@ -15,7 +15,9 @@ compile: function () { return fetch('snake.wasm').then(WebAssembly.compileStream
 'Food':184,
 },
  types:
- {'Object':new TO.StructType({_desc_:TO.int32}),
+ {
+'Vector': new TO.StructType({_desc_:TO.int32, _length_:TO.int32, _memory_: TO.Object}),
+'Object':new TO.StructType({_desc_:TO.int32}),
 'Board':new TO.StructType({_desc_:TO.int32,'height':TO.int32,'width':TO.int32,'tiles':TO.Object}),
 'Tile':new TO.StructType({_desc_:TO.int32,'element':TO.Object}),
 'Empty':new TO.StructType({_desc_:TO.int32,'element':TO.Object}),
@@ -40,12 +42,11 @@ compile: function () { return fetch('snake.wasm').then(WebAssembly.compileStream
  lib:
  {
 '_new_vector_Tile':
-function (n,init) {
-  let a=new Array(n);
-  for (let i=0; i < n; i++)
-    a[i]=init;
-  a._tag=0;
-  return a;
+function (len, init) {
+  let mem = new Array(len);
+  for (let i = 0; i < len; i++)
+    mem[i] = init;
+  return new self.types.Vector({_desc_: 0, _length_: len, _memory_: mem});
 },
 '_new_Board':function (height,width,tiles) { return new self.types.Board({_desc_:self.desc.Board,height,width,tiles}) },
 '_string_literal':function (n) { return self.strings[n] },
@@ -54,17 +55,17 @@ function (n,init) {
 '_new_Empty':function (element) { return new self.types.Empty({_desc_:self.desc.Empty,element}) },
 '_get_Board_tiles':function (p) { return p.tiles },
 '_get_Board_width':function (p) { return p.width },
-'_vector_ref_Tile':
+'_maybenull_vector_ref_Tile':
 function (p,i) {
-  if ((i >>> 0) >= p.length)
-    throw new RangeError('Out of range: ' + i + ' for ' + p.length);
-  return p[i];
+  if ((i >>> 0) >= p._length_)
+    throw new RangeError('Out of range: ' + i + ' for ' + p._length_);
+  return p._memory_[i];
 },
-'_vector_set_Tile':
+'_maybenull_vector_set_Tile':
 function (p,i,v) {
-  if ((i >>> 0) >= p.length)
-    throw new RangeError('Out of range: ' + i + ' for ' + p.length);
-  p[i] = v;
+  if ((i >>> 0) >= p._length_)
+    throw new RangeError('Out of range: ' + i + ' for ' + p._length_);
+  p._memory_[i] = v;
 },
 '_get_Tile_element':function (p) { return p.element },
 '_set_Tile_element':function (p, v) { p.element = v },

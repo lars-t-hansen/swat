@@ -1382,7 +1382,7 @@ For detailed usage instructions see MANUAL.md.
                target-type))
         ((and (Vector-type? value-type)
               (anyref-type? target-type))
-         (list (render-upcast-vector-to-anyref cx env (type.vector-element value-type) value)
+         (list (render-upcast-maybenull-vector-to-anyref cx env (type.vector-element value-type) value)
                target-type))
         ((and (String-type? value-type)
               (anyref-type? target-type))
@@ -1869,7 +1869,7 @@ For detailed usage instructions see MANUAL.md.
                    ((class-type? t)
                     (values (render-upcast-class-to-anyref cx env e) target-type))
                    ((Vector-type? t)
-                    (values (render-upcast-vector-to-anyref cx env (type.vector-element t) e) target-type))
+                    (values (render-upcast-maybenull-vector-to-anyref cx env (type.vector-element t) e) target-type))
                    (else
                     (canthappen))))
             ((String-type? target-type)
@@ -2627,7 +2627,7 @@ For detailed usage instructions see MANUAL.md.
 (define (expand-vector-length cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
     (check-vector-type t0 "'vector-length'" expr)
-    (values (render-vector-length cx env e0 (type.vector-element t0)) *i32-type*)))
+    (values (render-maybenull-vector-length cx env e0 (type.vector-element t0)) *i32-type*)))
 
 (define (expand-vector-ref cx expr env)
   (let*-values (((e0 t0) (expand-expr cx (cadr expr) env))
@@ -2635,7 +2635,7 @@ For detailed usage instructions see MANUAL.md.
     (check-vector-type t0 "'vector-ref'" expr)
     (check-i32-type t1 "'vector-ref'" expr)
     (let ((element-type (type.vector-element t0)))
-      (values (render-vector-ref cx env e0 e1 element-type) element-type))))
+      (values (render-maybenull-vector-ref cx env e0 e1 element-type) element-type))))
 
 (define (expand-vector-set! cx expr env)
   (let*-values (((e0 t0) (expand-expr cx (cadr expr) env))
@@ -2645,13 +2645,13 @@ For detailed usage instructions see MANUAL.md.
     (check-i32-type t1 "'vector-set!'" expr)
     (check-same-type (type.vector-element t0) t2 "'vector-set!'" expr)
     (let ((element-type (type.vector-element t0)))
-      (values (render-vector-set! cx env e0 e1 e2 element-type) *void-type*))))
+      (values (render-maybenull-vector-set! cx env e0 e1 e2 element-type) *void-type*))))
 
 (define (expand-vector->string cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
     (check-vector-type t0 "'vector->string'" expr)
     (check-i32-type (type.vector-element t0) "'vector->string'" expr)
-    (values (render-vector->string cx env e0) *String-type*)))
+    (values (render-maybenull-vector->string cx env e0) *String-type*)))
 
 (define (expand-string->vector cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
@@ -3251,12 +3251,12 @@ function (p,q) {
   (let ((func (lookup-synthesized-func cx env '_string_compare synthesize-string-compare)))
     `(call ,(func.id func) ,e0 ,e1)))
 
-(define (synthesize-vector->string cx env name)
+(define (synthesize-maybenull-vector->string cx env name)
   (js-lib cx env name `(,(make-vector-type cx env *i32-type*)) *String-type*
-          "function (x) { return String.fromCharCode.apply(null, x) }"))
+          "function (x) { return String.fromCharCode.apply(null, x._memory_) }"))
 
-(define (render-vector->string cx env e)
-  (let ((func (lookup-synthesized-func cx env '_vector_to_string synthesize-vector->string)))
+(define (render-maybenull-vector->string cx env e)
+  (let ((func (lookup-synthesized-func cx env '_maybenull_vector_to_string synthesize-maybenull-vector->string)))
     `(call ,(func.id func) ,e)))
 
 (define (synthesize-string->vector cx env name)
@@ -3264,12 +3264,11 @@ function (p,q) {
     (js-lib cx env name `(,*String-type*) vt
             "
 function (s) {
-  let len = x.length;
-  let a=new Array(len);
-  for(let i=0; i<len; i++)
-    a[i] = x.charCodeAt(i);
-  a._tag=~a;
-  return a;
+  let len = s.length;
+  let mem = new Array(len);
+  for (let i = 0; i < len; i++)
+    mem[i] = s.charCodeAt(i);
+  return new self.types.Vector({_desc_: ~a, _length_: len, _memory_: mem});
 }" (type.vector-id vt))))
 
 (define (render-string->vector cx env e)
@@ -3319,12 +3318,11 @@ function (p) {
   (let ((vt   (type.vector-of element-type)))
     (js-lib cx env name `(,*i32-type* ,element-type) vt
             "
-function (n,init) {
-  let a=new Array(n);
-  for (let i=0; i < n; i++)
-    a[i]=init;
-  a._tag=~a;
-  return a;
+function (len, init) {
+  let mem = new Array(len);
+  for (let i = 0; i < len; i++)
+    mem[i] = init;
+  return new self.types.Vector({_desc_: ~a, _length_: len, _memory_: mem});
 }" (type.vector-id vt))))
 
 (define (render-new-vector cx env element-type len init)
@@ -3333,62 +3331,62 @@ function (n,init) {
                                        element-type)))
     `(call ,(func.id func) ,len ,init)))
 
-(define (synthesize-vector-length cx env name element-type)
-  (js-lib cx env name `(,*anyref-type*) *i32-type* "function (p) { return p.length }"))
+(define (synthesize-maybenull-vector-length cx env name element-type)
+  (js-lib cx env name `(,*anyref-type*) *i32-type* "function (p) { return p._length_ }"))
 
-(define (render-vector-length cx env expr element-type)
-  (let ((func (lookup-synthesized-func cx env (splice "_vector_length_" (render-element-type element-type))
-                                       synthesize-vector-length
+(define (render-maybenull-vector-length cx env expr element-type)
+  (let ((func (lookup-synthesized-func cx env (splice "_maybenull_vector_length_" (render-element-type element-type))
+                                       synthesize-maybenull-vector-length
                                        element-type)))
     `(call ,(func.id func) ,expr)))
 
-(define (synthesize-vector-ref cx env name element-type)
+(define (synthesize-maybenull-vector-ref cx env name element-type)
   (js-lib cx env name `(,*anyref-type* ,*i32-type*) element-type
             "
 function (p,i) {
-  if ((i >>> 0) >= p.length)
-    throw new RangeError('Out of range: ' + i + ' for ' + p.length);
-  return p[i];
+  if ((i >>> 0) >= p._length_)
+    throw new RangeError('Out of range: ' + i + ' for ' + p._length_);
+  return p._memory_[i];
 }"))
 
-(define (render-vector-ref cx env e0 e1 element-type)
-  (let ((func (lookup-synthesized-func cx env (splice "_vector_ref_" (render-element-type element-type))
-                                       synthesize-vector-ref
+(define (render-maybenull-vector-ref cx env e0 e1 element-type)
+  (let ((func (lookup-synthesized-func cx env (splice "_maybenull_vector_ref_" (render-element-type element-type))
+                                       synthesize-maybenull-vector-ref
                                        element-type)))
     `(call ,(func.id func) ,e0 ,e1)))
 
-(define (synthesize-vector-set! cx env name element-type)
+(define (synthesize-maybenull-vector-set! cx env name element-type)
   (js-lib cx env name `(,*anyref-type* ,*i32-type* ,element-type) *void-type*
             "
 function (p,i,v) {
-  if ((i >>> 0) >= p.length)
-    throw new RangeError('Out of range: ' + i + ' for ' + p.length);
-  p[i] = v;
+  if ((i >>> 0) >= p._length_)
+    throw new RangeError('Out of range: ' + i + ' for ' + p._length_);
+  p._memory_[i] = v;
 }"))
 
-(define (render-vector-set! cx env e0 e1 e2 element-type)
-  (let ((func (lookup-synthesized-func cx env (splice "_vector_set_" (render-element-type element-type))
-                                       synthesize-vector-set!
+(define (render-maybenull-vector-set! cx env e0 e1 e2 element-type)
+  (let ((func (lookup-synthesized-func cx env (splice "_maybenull_vector_set_" (render-element-type element-type))
+                                       synthesize-maybenull-vector-set!
                                        element-type)))
     `(call ,(func.id func) ,e0 ,e1 ,e2)))
 
-(define (synthesize-upcast-vector-to-anyref cx env name element-type)
+(define (synthesize-upcast-maybenull-vector-to-anyref cx env name element-type)
   (js-lib cx env name `(,*anyref-type*) *anyref-type* "function (p) { return p }"))
 
-(define (render-upcast-vector-to-anyref cx env element-type expr)
-  (let ((func (lookup-synthesized-func cx env (splice "_upcast_vector_" (render-element-type element-type) "_to_anyref")
-                                       synthesize-upcast-vector-to-anyref
+(define (render-upcast-maybenull-vector-to-anyref cx env element-type expr)
+  (let ((func (lookup-synthesized-func cx env (splice "_upcast_maybenull_vector_" (render-element-type element-type) "_to_anyref")
+                                       synthesize-upcast-maybenull-vector-to-anyref
                                        element-type)))
     `(call ,(func.id func) ,expr)))
 
 (define (synthesize-maybenull-anyref-is-vector cx env name element-type)
   (let ((vt (type.vector-of element-type)))
     (js-lib cx env name `(,*anyref-type*) *i32-type*
-            "function (p) { return p !== null && Array.isArray(p) && p._tag===~a }"
+            "function (p) { return p !== null && p instanceof self.types.Vector && p._desc_ === ~a }"
             (type.vector-id vt))))
 
 (define (render-maybenull-anyref-is-vector cx env expr element-type)
-  (let ((func (lookup-synthesized-func cx env (splice "_anyref_is_vector_" (render-element-type element-type))
+  (let ((func (lookup-synthesized-func cx env (splice "_maybenull_anyref_is_vector_" (render-element-type element-type))
                                        synthesize-maybenull-anyref-is-vector
                                        element-type)))
     `(call ,(func.id func) ,expr)))
@@ -3398,9 +3396,9 @@ function (p,i,v) {
     (js-lib cx env name `(,*anyref-type*) vt
           "
 function (p) {
-  if (p == null || !Array.isArray(p) || p._tag!==~a)
-    throw new Error('Failed to narrow to Vector' + p);
-  return p;
+  if (p === null || (p instanceof self.types.Vector && p._desc_ === ~a))
+    return p;
+  throw new Error('Failed to narrow to Vector' + p);
 }" (type.vector-id vt))))
 
 (define (render-downcast-maybenull-anyref-to-vector cx env expr element-type)
@@ -3456,7 +3454,9 @@ compile: function () { return Promise.resolve(self._module) },
 (get-output-string (support.desc support))
 "},
  types:
- {"
+ {
+'Vector': new TO.StructType({_desc_:TO.int32, _length_:TO.int32, _memory_: TO.Object}),
+"
 (get-output-string (support.type support))
 "},
  strings:
