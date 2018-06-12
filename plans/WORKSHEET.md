@@ -1,14 +1,14 @@
 For flat descriptors:
 
 * First fix classes:
-  - Anyref-to-class
-    - handle null systematically
-  - Now get rid of the JS descriptor objects and only store the address
-    - The generated constructor code just passes a literal int to `new`,
-      this is the address in flat memory of the object descriptor
-    - The type in the object changes from TO.Object to TO.int32,
-      and the code that reads the desc just reads _desc_, not _desc_.addr
-    - The entire "desc" substructure disappears along with the objects in it
+  - Anyref-to-class: handle null systematically?
+  - Remove 'desc' altogether if we can, just expand the constant in-line
+  - Clean up prose about descriptors
+
+* Then fix arrays:
+  - change representation to use an object-like thing with a _desc_,
+    update code to use _desc_ instead of _tag_
+  - ...
 
 * Make anyref-to-whatever downcasts be systematic so that anyref is a
   different thing.  Downcasts are now downcast from nullable anyref to

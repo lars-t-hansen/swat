@@ -2996,7 +2996,7 @@ For detailed usage instructions see MANUAL.md.
   (for-each (lambda (cls)
               (format-type cx (class.name cls)
                            "new TO.StructType({~a})"
-                           (comma-separate (cons "_desc_:TO.Object"
+                           (comma-separate (cons "_desc_:TO.int32"
                                                  (map (lambda (f)
                                                         (string-splice "'" (car f) "':" (typed-object-name (cadr f))))
                                                       (class.fields cls))))))
@@ -3029,11 +3029,7 @@ For detailed usage instructions see MANUAL.md.
                 (for-each (lambda (d)
                             (cx.data-set! cx (cons d (cx.data cx))))
                           table)
-                (format-desc cx (class.name cls)
-                             "{addr: ~a, id_offset:~a, table:[~a]}"
-                             (+ addr (* 4 (length virtuals)))
-                             (length virtuals)
-                             (comma-separate (map number->string table)))))
+                (format-desc cx (class.name cls) "~a" (+ addr (* 4 (length virtuals))))))
             (classes env)))
 
 ;; Once we have field access in wasm the the 'get descriptor' operation will be
@@ -3042,7 +3038,7 @@ For detailed usage instructions see MANUAL.md.
 ;; offset 0.)  It depends on some kind of subtyping resolution in Wasm.
 
 (define (synthesize-get-descriptor-addr cx env name)
-  (js-lib cx env name `(,*Object-type*) *i32-type* "function (p) { return p._desc_.addr }"))
+  (js-lib cx env name `(,*Object-type*) *i32-type* "function (p) { return p._desc_ }"))
 
 (define (render-get-descriptor-addr cx env base-expr)
   (let ((func (lookup-synthesized-func cx env '_desc_ synthesize-get-descriptor-addr)))
