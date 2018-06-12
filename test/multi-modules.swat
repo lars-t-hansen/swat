@@ -14,7 +14,7 @@ M1.compile().then(function(module) {
 function(err) { throw err })
 
 M2.compile().then(function(module) {
-  var i2 = new WebAssembly.Instance(m2.module, {lib:M2.lib}).exports;
+  var i2 = new WebAssembly.Instance(module, {lib:M2.lib}).exports;
   assertEq(i2.g instanceof Function, true);
 },
 function(err) { throw err }).catch(function (e) {
