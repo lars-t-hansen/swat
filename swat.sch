@@ -42,7 +42,7 @@
   (syntax-rules ()
     ((assert expr)
      (if (not expr)
-         (begin (error "Assertion failed")
+         (begin (error "Assertion failed" (quote expr))
                 #t)))))
 
 (define-syntax canthappen
@@ -1641,7 +1641,9 @@ For detailed usage instructions see MANUAL.md.
   (define-env-global! env '%object-desc-id% (make-expander '%object-desc-id% expand-object-desc-id '(precisely 2)))
   (define-env-global! env '%object-desc-length% (make-expander '%object-desc-length% expand-object-desc-length '(precisely 2)))
   (define-env-global! env '%object-desc-ref% (make-expander '%object-desc-ref% expand-object-desc-ref '(precisely 3)))
-  (define-env-global! env '%object-desc-virtual% (make-expander '%object-desc-virtual% expand-object-desc-virtual '(precisely 3))))
+  (define-env-global! env '%object-desc-virtual% (make-expander '%object-desc-virtual% expand-object-desc-virtual '(precisely 3)))
+  (define-env-global! env '%vector-desc% (make-expander '%vector-desc% expand-vector-desc '(precisely 2)))
+  (define-env-global! env '%vector-desc-id% (make-expander '%vector-desc-id% expand-vector-desc-id '(precisely 2))))
 
 ;; Primitive syntax
 
@@ -1851,7 +1853,7 @@ For detailed usage instructions see MANUAL.md.
              (cond ((and (Vector-type? t) (type=? target-type t))
                     `(block i32 ,e dro (i32.const 1)))
                    ((anyref-type? t)
-                    (values (render-maybenull-anyref-is-vector cx env e (type.vector-element target-type)) *i32-type*))
+                    (maybenull-anyref-is-vector cx env target-type e t))
                    (else
                     (fail "Bad source type in 'is'" t expr))))
             (else
@@ -1900,8 +1902,7 @@ For detailed usage instructions see MANUAL.md.
              (cond ((and (Vector-type? t) (type=? target-type t))
                     (values e target-type))
                    ((anyref-type? t)
-                    (values (render-downcast-maybenull-anyref-to-vector cx env e (type.vector-element target-type))
-                            target-type))
+                    (downcast-maybenull-anyref-to-vector cx env target-type e t))
                    (else
                     (fail "Bad source type in 'as'" t expr))))
             (else
@@ -1989,6 +1990,42 @@ For detailed usage instructions see MANUAL.md.
                 (if anyref (ref.is_null (get_local (%id% ,obj)))
                     (unreachable)
                     (get_local (%id% ,obj)))))
+     env)))
+
+;; TODO: the render here could be a primitive?  %nonnull-anyref-unbox-vector%
+
+(define (maybenull-anyref-is-vector cx env target-type val valty)
+  (let ((obj  (new-name cx "p"))
+        (desc (new-name cx "d"))
+        (tmp  (new-name cx "t")))
+    (expand-expr
+     cx
+     `(%let% ((,obj (%wasm% ,valty ,val)))
+        (%if% (%null?% ,obj)
+              #f
+              (%let% ((,tmp (%wasm% anyref ,(render-maybe-unbox-nonnull-anyref-as-vector cx env `(get_local (%id% ,obj))))))
+                (%if% (%null?% ,tmp)
+                      #f
+                      (%let% ((,desc (%vector-desc% ,tmp)))
+                         (%=% (%vector-desc-id% ,desc) ,(type.vector-id target-type)))))))
+     env)))
+
+(define (downcast-maybenull-anyref-to-vector cx env target-type val valty)
+  (let ((obj  (new-name cx "p"))
+        (desc (new-name cx "d"))
+        (tmp  (new-name cx "t")))
+    (expand-expr
+     cx
+     `(%let% ((,obj (%wasm% ,valty ,val)))
+        (%if% (%null?% ,obj)
+              (%wasm% ,target-type (get_local (%id% ,obj)))
+              (%let% ((,tmp (%wasm% anyref ,(render-maybe-unbox-nonnull-anyref-as-vector cx env `(get_local (%id% ,obj))))))
+                (%if% (%null?% ,tmp)
+                      (%wasm% ,target-type (unreachable))
+                      (%let% ((,desc (%vector-desc% ,tmp)))
+                         (%if% (%=% (%vector-desc-id% ,desc) ,(type.vector-id target-type))
+                               (%wasm% ,target-type (get_local (%id% ,obj)))
+                               (%wasm% ,target-type (unreachable))))))))
      env)))
 
 ;; `obj` is a wasm expression, `objty` its type object, and `vid` is the virtual index.
@@ -2692,6 +2729,21 @@ For detailed usage instructions see MANUAL.md.
       (check-i32-type t0 "'%object-desc-virtual%'" expr)
       (values `(i32.load (i32.sub ,e0 (i32.const ,(+ 4 (* 4 vid))))) *i32-type*))))
 
+;; A Vector object has the same layout as an Object object, so just reuse the
+;; accessor.  This will go away soon anyway.
+
+(define (expand-vector-desc cx expr env)
+  (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
+    (check-anyref-type t0 "'%vector-desc%'" expr)
+    (values (render-get-descriptor-addr cx env e0) *i32-type*)))
+
+;; At the moment, the desc id is the same as the desc.  This will change.
+
+(define (expand-vector-desc-id cx expr env)
+  (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
+    (check-i32-type t0 "'%vector-desc-id%'" expr)
+    (values e0 *i32-type*)))
+
 ;; Type checking.
 
 (define (check-i32-value val . context)
@@ -2729,6 +2781,10 @@ For detailed usage instructions see MANUAL.md.
 (define (check-integer-type t context . rest)
   (if (not (integer-type? t))
       (apply fail `("Not an integer type in" ,context ,@rest "\n" ,(pretty-type t)))))
+
+(define (check-anyref-type t context . rest)
+  (if (not (anyref-type? t))
+      (apply fail `("Not an anyref type in" ,context ,@rest "\n" ,(pretty-type t)))))
 
 (define (check-string-type t context . rest)
   (if (not (String-type? t))
@@ -3123,7 +3179,8 @@ function (p) {
 
 ;; TODO: here we assume JS syntax for the field-name.  We can work around it for
 ;; the field access but not for the function name.  We need some kind of
-;; mangling.
+;; mangling.  But really, the problem will go away as soon as we have native
+;; field access.
 
 (define (synthesize-maybenull-field-access cx env name cls field-name)
   (let* ((field      (assq field-name (class.fields cls)))
@@ -3385,33 +3442,19 @@ function (p,i,v) {
                                        element-type)))
     `(call ,(func.id func) ,expr)))
 
-(define (synthesize-maybenull-anyref-is-vector cx env name element-type)
-  (let ((vt (type.vector-of element-type)))
-    (js-lib cx env name `(,*anyref-type*) *i32-type*
-            "function (p) { return p !== null && p instanceof self.types.Vector && p._desc_ === ~a }"
-            (type.vector-id vt))))
-
-(define (render-maybenull-anyref-is-vector cx env expr element-type)
-  (let ((func (lookup-synthesized-func cx env (splice "_maybenull_anyref_is_vector_" (render-element-type element-type))
-                                       synthesize-maybenull-anyref-is-vector
-                                       element-type)))
-    `(call ,(func.id func) ,expr)))
-
-(define (synthesize-downcast-maybenull-anyref-to-vector cx env name element-type)
-  (let ((vt (type.vector-of element-type)))
-    (js-lib cx env name `(,*anyref-type*) vt
+(define (synthesize-maybe-unbox-nonnull-anyref-as-vector cx env name)
+  (js-lib cx env name `(,*anyref-type*) *anyref-type*
           "
 function (p) {
-  if (p === null || (p instanceof self.types.Vector && p._desc_ === ~a))
+  if (p instanceof self.types.Vector)
     return p;
-  throw new Error('Failed to narrow to Vector' + p);
-}" (type.vector-id vt))))
+  return null;
+}"))
 
-(define (render-downcast-maybenull-anyref-to-vector cx env expr element-type)
-  (let ((func (lookup-synthesized-func cx env (splice "_downcast_anyref_to_vector_" (render-element-type element-type))
-                                       synthesize-downcast-maybenull-anyref-to-vector
-                                       element-type)))
-    `(call ,(func.id func) ,expr)))
+(define (render-maybe-unbox-nonnull-anyref-as-vector cx env val)
+  (let ((func (lookup-synthesized-func cx env '_maybe_unbox_nonnull_anyref_as_vector
+                                       synthesize-maybe-unbox-nonnull-anyref-as-vector)))
+    `(call ,(func.id func) ,val)))
 
 (define (render-element-type element-type)
   (cond ((Vector-type? element-type)
