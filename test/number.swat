@@ -52,5 +52,8 @@ Num.compile().then(function(module) {
   assertEq(m.f64_ninf_2 < 0, true);
   assertEq(m.f32_ninf < 0, true);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

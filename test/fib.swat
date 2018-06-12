@@ -19,5 +19,7 @@ Fib.compile().then(function(module) {
   ins.run(10);
   assertEq(ans, 55);
 },
-function(err) { throw err })
-")
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})")

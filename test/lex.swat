@@ -451,5 +451,8 @@ Lex.compile().then(function(module) {
                                        'bad-number': bad_number}}).exports;
   run();
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

@@ -148,5 +148,8 @@ EvalExpr.compile().then(function(module) {
   assertEq(i.evalExpr(e), 7);
   assertEq(i.print(e) + '', '(+ 3 4)');
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

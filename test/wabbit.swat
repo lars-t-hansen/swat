@@ -42,5 +42,8 @@ Wabbit.compile().then(function(module) {
   assertEq(t.left.val, -b);
   assertEq(t.right.val, -a);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

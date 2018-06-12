@@ -13,5 +13,8 @@ Misc.compile().then(function(module) {
   assertEq(i.sel(0, 10, 20), 11);
   assertEq(i.sel(1, 10, 20), 18);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

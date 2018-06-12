@@ -63,7 +63,10 @@ Vec.compile().then(function(module) {
   assertError(() => ins.set(v, -1, 0), RangeError, /out of range/);
   assertError(() => ins.set(v, 8, 0), RangeError, /out of range/);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 
 function assertError(thunk, Exn, msg) {
   var err = null;

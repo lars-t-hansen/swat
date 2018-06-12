@@ -17,6 +17,9 @@ M2.compile().then(function(module) {
   var i2 = new WebAssembly.Instance(m2.module, {lib:M2.lib}).exports;
   assertEq(i2.g instanceof Function, true);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")
 

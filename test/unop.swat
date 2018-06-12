@@ -141,5 +141,8 @@ Unop.compile().then(function(module) {
   assertEq(i.trunc_f32(1.5), 1);
   assertEq(i.trunc_f32(-1.5), -1);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")
