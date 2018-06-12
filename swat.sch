@@ -3352,7 +3352,7 @@ function (p) { return p !== null && p instanceof String }"))
 
 (define (render-maybenull-anyref-is-string cx env val)
   (let ((func (lookup-synthesized-func cx env '_anyref_is_string synthesize-maybenull-anyref-is-string)))
-  `(call ,(func.id func) ,val)))
+    `(call ,(func.id func) ,val)))
 
 (define (synthesize-unbox-maybenull-anyref-as-string cx env name)
   (js-lib cx env name `(,*anyref-type*) *String-type*

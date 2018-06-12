@@ -15,6 +15,9 @@ For flat descriptors:
   - remove length field from the Vector type
   - expose null tests maybe?
 
+* Fix strings:
+  - ???
+
 * Fix documentation
 
 Week plan:
