@@ -3093,7 +3093,7 @@ For detailed usage instructions see MANUAL.md.
   (js-lib cx env name `(,*anyref-type*) *Object-type*
           "
 function (p) {
-  if (p === null || typeof p._desc_ === 'object')
+  if (p === null || p instanceof self.types.Object)
     return p;
   throw new Error('Failed to unbox anyref as object');
 }"))
