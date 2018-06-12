@@ -3044,6 +3044,13 @@ For detailed usage instructions see MANUAL.md.
 ;; Test 2: T.tbl[1] is id(C)   [so T is C or D, but only C fits because len(T)=2]
 ;; So no.
 
+
+;; Note, "instanceof" does not worked on TypedObject instances.  So instead of
+;; "x instanceof T" where T is some TO type, we use "x.hasOwnProperty('_desc_')"
+;; to test for Object/Vector, and then wasm code must extract the type code and
+;; check that.
+
+
 ;; There are some additional complications.
 ;;
 ;; Currently we distinguish Object and its subtypes from other junk on the JS
@@ -3151,7 +3158,7 @@ For detailed usage instructions see MANUAL.md.
   (js-lib cx env name `(,*anyref-type*) *Object-type*
           "
 function (p) {
-  if (p === null || p instanceof self.types.Object)
+  if (p === null || p.hasOwnProperty('_desc_'))
     return p;
   throw new Error('Failed to unbox anyref as object');
 }"))
@@ -3166,7 +3173,7 @@ function (p) {
   (js-lib cx env name `(,*anyref-type*) *Object-type*
           "
 function (p) {
-  if (p instanceof self.types.Object)
+  if (p.hasOwnProperty('_desc_'))
     return p;
   return null;
 }"))

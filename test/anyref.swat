@@ -141,7 +141,7 @@ AnyRef.compile().then(function(module) {
   assertEq(i.a_is_c('hi'), 0);
   assertEq(i.a_is_c(x), 0);
   assertEq(i.a_as_c(c), c);
-  try { exn=null; i.a_as_c(null) } catch (e) { exn=e }; assertEq(!!exn, true);
+  assertEq(i.a_as_c(null), null);
   try { exn=null; i.a_as_c('hi') } catch (e) { exn=e }; assertEq(!!exn, true);
   try { exn=null; i.a_as_c(x) } catch (e) { exn=e }; assertEq(!!exn, true);
   try { exn=null; i.a_as_c(e) } catch (e) { exn=e }; assertEq(!!exn, true);
