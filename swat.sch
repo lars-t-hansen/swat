@@ -204,6 +204,8 @@ Options:
                 using any mechanism.  The web page must itself load, compile,
                 and instantiate fn.wasm using streaming APIs.
 
+  --wizard      Emit code for the wasm GC feature, using unlanded code.
+
   --stdout, -s  For testing: Print output to stdout.
 
                 If --js is not present it only prints wasm text output;
@@ -490,7 +492,8 @@ For detailed usage instructions see MANUAL.md.
             (cons 'module
                   (append
                    (generate-memory cx env)
-                   (generate-types cx env)
+                   (generate-class-types cx env)
+                   (generate-function-types cx env)
                    (generate-tables cx env)
                    (generate-globals cx env)
                    (generate-functions cx env))))))
@@ -510,7 +513,15 @@ For detailed usage instructions see MANUAL.md.
                                   (reverse (cx.data cx)))))))
       '()))
 
-(define (generate-types cx env)
+(define (generate-class-types cx env)
+  (if (cx.wizard? cx)
+      (map (lambda (cls)
+             `(type ,(render-class-name cls)
+                    (struct ,@(map (lambda (x) `(field ,(render-type cx (cadr x)))) (class.fields cls)))))
+           (classes env))
+      '()))
+
+(define (generate-function-types cx env)
   (reverse (map (lambda (x)
                   `(type ,(cdr x) ,(car x)))
                 (cx.types cx))))
@@ -522,7 +533,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define (generate-globals cx env)
   (map (lambda (g)
-         (let* ((t (render-type (global.type g)))
+         (let* ((t (render-type cx (global.type g)))
                 (t (if (global.mut? g) `(mut ,t) t)))
            (if (global.module g)
                `(import ,(global.module g) ,(symbol->string (global.name g)) (global ,t))
@@ -536,7 +547,7 @@ For detailed usage instructions see MANUAL.md.
 (define (generate-functions cx env)
   (map (lambda (f)
          (if (func.module f)
-             `(import ,(func.module f) ,(symbol->string (func.name f)) ,(assemble-function f '()))
+             `(import ,(func.module f) ,(symbol->string (func.name f)) ,(assemble-function cx f '()))
              (func.defn f)))
        (sort (cx.functions cx)
              (lambda (x y)
@@ -566,7 +577,7 @@ For detailed usage instructions see MANUAL.md.
   class?
   (name       class.name)                              ; Class name as symbol
   (base       class.base       class.base-set!)        ; Base class object, or #f in Object
-  (fields     class.fields     class.fields-set!)      ; ((name type-name) ...)
+  (fields     class.fields     class.fields-set!)      ; ((name type-object) ...)
   (resolved?  class.resolved?  class.resolved-set!)    ; #t iff class has been resolved
   (type       class.type       class.type-set!)        ; Type object referencing this class object
   (host       class.host       class.host-set!)        ; Host system information
@@ -773,8 +784,9 @@ For detailed usage instructions see MANUAL.md.
     (register-func! cx func)
     func))
 
-(define (assemble-function func body)
-  (let ((f (prepend-signature (func.name func)
+(define (assemble-function cx func body)
+  (let ((f (prepend-signature cx
+                              (func.name func)
                               (func.rendered-params func)
                               (func.result func)
                               (func.export? func)
@@ -796,7 +808,7 @@ For detailed usage instructions see MANUAL.md.
              (env   (func.env func))
              (slots (func.slots func)))
         (cx.slots-set! cx slots)
-        (assemble-function func (expand-func-body cx body (func.result func) env))))))
+        (assemble-function cx func (expand-func-body cx body (func.result func) env))))))
 
 (define (expand-func-body cx body expected-type env)
   (let-values (((expanded result-type) (expand-expr cx (cons 'begin body) env)))
@@ -805,15 +817,15 @@ For detailed usage instructions see MANUAL.md.
       (if (not drop?)
           (let ((val+ty (widen-value cx env expanded result-type expected-type)))
             (if val+ty
-                `(,@(get-slot-decls (cx.slots cx)) ,(car val+ty))
+                `(,@(get-slot-decls cx (cx.slots cx)) ,(car val+ty))
                 (fail "Return type mismatch" (pretty-type expected-type) (pretty-type result-type))))
-          `(,@(get-slot-decls (cx.slots cx)) ,expanded (drop))))))
+          `(,@(get-slot-decls cx (cx.slots cx)) ,expanded (drop))))))
 
-(define (prepend-signature name rendered-params result-type export? body)
+(define (prepend-signature cx name rendered-params result-type export? body)
   (let* ((f body)
          (f (if (void-type? result-type)
                 f
-                (cons `(result ,(render-type result-type)) f)))
+                (cons `(result ,(render-type cx result-type)) f)))
          (f (append rendered-params f))
          (f (if export?
                 (cons `(export ,(symbol->string name)) f)
@@ -860,7 +872,7 @@ For detailed usage instructions see MANUAL.md.
                      (loop (cdr xs)
                            (cons (cons name (make-local name slot t)) bindings)
                            (cons (list name t) formals)
-                           (cons `(param ,(render-type t)) params)))))))))))
+                           (cons `(param ,(render-type cx t)) params)))))))))))
 
 (define (renumber-functions cx env)
   (let ((functions (reverse (cx.functions cx)))
@@ -986,7 +998,7 @@ For detailed usage instructions see MANUAL.md.
     (let ((typeref
            (let ((t `(func ,@(func.rendered-params virt)
                            ,@(if (not (void-type? (func.result virt)))
-                                 `((result ,(render-type (func.result virt))))
+                                 `((result ,(render-type cx (func.result virt))))
                                  '()))))
              (let ((probe (assoc t (cx.types cx))))
                (if probe
@@ -1013,7 +1025,8 @@ For detailed usage instructions see MANUAL.md.
                            e0)))))))
 
 (define (assemble-virtual virtual body)
-  (let ((f (prepend-signature (func.name virtual)
+  (let ((f (prepend-signature cx
+                              (func.name virtual)
                               (func.rendered-params virtual)
                               (func.result virtual)
                               (func.export? virtual)
@@ -1051,7 +1064,7 @@ For detailed usage instructions see MANUAL.md.
                 ;; FIXME: assq will probably work but assoc with class=? would be better?
                 (if (not (assq uber discs))
                     (let ((err (make-func 'error #f #f '() '() *void-type* #f #f)))
-                      (assemble-function err '(unreachable))
+                      (assemble-function cx err '(unreachable))
                       (register-func! cx err)
                       (func.table-index-set! err 0)
                       (set! discs (cons (list uber err) discs))))
@@ -1202,9 +1215,9 @@ For detailed usage instructions see MANUAL.md.
                 (setter slots (cons slot (getter slots)))))
             undos))
 
-(define (get-slot-decls slots)
+(define (get-slot-decls cx slots)
   (map (lambda (t)
-         `(local ,(render-type t)))
+         `(local ,(render-type cx t)))
        (reverse (tracker.defined (slots.tracker slots)))))
 
 (define (do-claim-slot slots t record?)
@@ -1663,7 +1676,7 @@ For detailed usage instructions see MANUAL.md.
                  (cond ((= (length body) 1)
                         (values (car body) ty))
                        (else
-                        (values `(block ,@(render-type-spliceable ty) ,@(reverse body)) ty))))
+                        (values `(block ,@(render-type-spliceable cx ty) ,@(reverse body)) ty))))
                 ((not (void-type? ty))
                  (loop exprs (cons 'drop body) *void-type*))
                 (else
@@ -1681,7 +1694,7 @@ For detailed usage instructions see MANUAL.md.
        (let*-values (((consequent t1) (expand-expr cx (caddr expr) env))
                      ((alternate  t2) (expand-expr cx (cadddr expr) env)))
          (check-same-type t1 t2 "'if' arms" expr)
-         (values `(if ,@(render-type-spliceable t1) ,test ,consequent ,alternate) t1)))
+         (values `(if ,@(render-type-spliceable cx t1) ,test ,consequent ,alternate) t1)))
       (else
        (fail "Bad 'if'" expr)))))
 
@@ -1748,7 +1761,7 @@ For detailed usage instructions see MANUAL.md.
     (let*-values (((new-locals code undos new-env) (process-bindings bindings env))
                   ((e0 t0)                         (expand-expr cx `(begin ,@body) new-env)))
       (unclaim-locals (cx.slots cx) undos)
-      (let ((type (render-type-spliceable t0)))
+      (let ((type (render-type-spliceable cx t0)))
         (if (not (null? code))
             (if (and (pair? e0) (eq? (car e0) 'begin))
                 (values `(block ,@type ,@code ,@(cdr e0)) t0)
@@ -1763,7 +1776,7 @@ For detailed usage instructions see MANUAL.md.
          (env  (extend-env env (list (cons id loop))))
          (body (map car (expand-expressions cx body env))))
     (values `(block ,(loop.break loop)
-                    ,@(render-type-spliceable (loop.type loop))
+                    ,@(render-type-spliceable cx (loop.type loop))
                     (loop ,(loop.continue loop)
                           ,@body
                           (br ,(loop.continue loop)))
@@ -2159,7 +2172,7 @@ For detailed usage instructions see MANUAL.md.
       (if (else-clause? last)
           (wrap-clauses (cdr clauses)
                         (cadr last)
-                        (render-type-spliceable t))
+                        (render-type-spliceable cx t))
           (wrap-clauses (cdr clauses)
                         `(if ,(car last) ,(cadr last))
                         '()))))
@@ -2268,7 +2281,7 @@ For detailed usage instructions see MANUAL.md.
           (values default default-type))
         (let* ((_             (check-case-types cases default-type))
                (ty            (caddr (car cases)))
-               (bty           (render-type-spliceable ty))
+               (bty           (render-type-spliceable cx ty))
                (cases         (map (lambda (c) (cons (new-name cx "case") c)) cases))
                (default-label (new-name cx "default"))
                (outer-label   (new-name cx "outer"))
@@ -2898,7 +2911,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define (synthesize-func-import cx env name formal-types result)
   (let ((rendered-params (map (lambda (f)
-                                `(param ,(render-type f)))
+                                `(param ,(render-type cx f)))
                               formal-types))
         (formals         (map (lambda (k f)
                                 (list (splice "p" k) f))
@@ -2912,18 +2925,23 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Types
 
-(define (render-type t)
+(define (render-type cx t)
   (if (reference-type? t)
-      'anyref
+      (if (cx.wizard? cx)
+          (cond ((class-type? t)
+                 `(ref ,(render-class-name (type.class t))))
+                (else
+                 'anyref))
+          'anyref)
       (type.name t)))
 
-(define (render-type-spliceable t)
-  (cond ((void-type? t)
-         '())
-        ((reference-type? t)
-         '(anyref))
-        (else
-         (list (type.name t)))))
+(define (render-type-spliceable cx t)
+  (if (void-type? t)
+      '()
+      (list (render-type cx t))))
+
+(define (render-class-name cls)
+  (splice "$cls_" (class.name cls)))
 
 (define (typed-object-name t)
   (string-append "TO."
@@ -3225,7 +3243,7 @@ function (p) {
     `(call ,(func.id func) ,base-expr ,val-expr)))
 
 (define (render-class-null cx env cls)
-  `(ref.null anyref))
+  `(ref.null ,(render-type cx (class.type cls))))
 
 ;; Strings and string literals
 
@@ -3265,7 +3283,7 @@ function (x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
     (let loop ((n (length args)) (args args) (code '()))
       (if (<= n 10)
           (let ((args (append args (make-list (- 10 n) '(i32.const 0)))))
-            `(block ,(render-type *String-type*)
+            `(block ,(render-type cx *String-type*)
                     ,@(reverse code)
                     (call ,(func.id new_string) (i32.const ,n) ,@args)))
           (loop (- n 10)
