@@ -2729,13 +2729,10 @@ For detailed usage instructions see MANUAL.md.
       (check-i32-type t0 "'%object-desc-virtual%'" expr)
       (values `(i32.load (i32.sub ,e0 (i32.const ,(+ 4 (* 4 vid))))) *i32-type*))))
 
-;; A Vector object has the same layout as an Object object, so just reuse the
-;; accessor.  This will go away soon anyway.
-
 (define (expand-vector-desc cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
     (check-anyref-type t0 "'%vector-desc%'" expr)
-    (values (render-get-descriptor-addr cx env e0) *i32-type*)))
+    (values (render-get-vector-descriptor-addr cx env e0) *i32-type*)))
 
 ;; At the moment, the desc id is the same as the desc.  This will change.
 
@@ -3113,6 +3110,13 @@ For detailed usage instructions see MANUAL.md.
   (let ((func (lookup-synthesized-func cx env '_desc_ synthesize-get-descriptor-addr)))
     `(call ,(func.id func) ,base-expr)))
 
+(define (synthesize-get-vector-descriptor-addr cx env name)
+  (js-lib cx env name `(,*anyref-type*) *i32-type* "function (p) { return p._vdesc_ }"))
+
+(define (render-get-vector-descriptor-addr cx env base-expr)
+  (let ((func (lookup-synthesized-func cx env '_vdesc_ synthesize-get-vector-descriptor-addr)))
+    `(call ,(func.id func) ,base-expr)))
+
 ;; Class operations
 
 (define (synthesize-new-class cx env name cls)
@@ -3338,7 +3342,7 @@ function (s) {
   let mem = new Array(len);
   for (let i = 0; i < len; i++)
     mem[i] = s.charCodeAt(i);
-  return new self.types.Vector({_desc_: ~a, _length_: len, _memory_: mem});
+  return new self.types.Vector({_vdesc_: ~a, _length_: len, _memory_: mem});
 }" (type.vector-id vt))))
 
 (define (render-string->vector cx env e)
@@ -3392,7 +3396,7 @@ function (len, init) {
   let mem = new Array(len);
   for (let i = 0; i < len; i++)
     mem[i] = init;
-  return new self.types.Vector({_desc_: ~a, _length_: len, _memory_: mem});
+  return new self.types.Vector({_vdesc_: ~a, _length_: len, _memory_: mem});
 }" (type.vector-id vt))))
 
 (define (render-new-vector cx env element-type len init)
@@ -3453,7 +3457,7 @@ function (p,i,v) {
   (js-lib cx env name `(,*anyref-type*) *anyref-type*
           "
 function (p) {
-  if (p instanceof self.types.Vector)
+  if (p.hasOwnProperty('_vdesc_'))
     return p;
   return null;
 }"))
@@ -3511,7 +3515,7 @@ compile: function () { return Promise.resolve(self._module) },
 "},
  types:
  {
-'Vector': new TO.StructType({_desc_:TO.int32, _length_:TO.int32, _memory_: TO.Object}),
+'Vector': new TO.StructType({_vdesc_:TO.int32, _length_:TO.int32, _memory_: TO.Object}),
 "
 (get-output-string (support.type support))
 "},
