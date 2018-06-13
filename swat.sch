@@ -516,7 +516,7 @@ For detailed usage instructions see MANUAL.md.
 (define (generate-class-types cx env)
   (if (cx.wizard? cx)
       (map (lambda (cls)
-             `(type ,(render-class-name cls)
+             `(type ,(wasm-class-name cls)
                     (struct (field i32)
                             ,@(map (lambda (x) `(field ,(render-type cx (cadr x))))
                                    (class.fields cls)))))
@@ -627,6 +627,12 @@ For detailed usage instructions see MANUAL.md.
        (= (length x) 2)
        (symbol? (car x))
        (accessor? (lookup env (car x)))))
+
+(define (field-index cls field-name)
+  (let loop ((fields (class.fields cls)) (i 0))
+    (cond ((null? fields) (fail "Field not found: " field-name))
+          ((eq? field-name (caar fields)) i)
+          (else (loop (cdr fields) (+ i 1))))))
 
 ;; Phase 1 records the names of base and field types, checks syntax, and records
 ;; the type; the types are resolved and checked by the resolution phase.
@@ -1823,7 +1829,7 @@ For detailed usage instructions see MANUAL.md.
                   (actuals (expand-expressions cx (cddr expr) env))
                   (actuals (check-and-widen-arguments cx env fields actuals expr)))
              (if (cx.wizard? cx)
-                 (values `(struct.new ,(render-class-name cls)
+                 (values `(struct.new ,(wasm-class-name cls)
                                       (i32.const ,(class.desc-addr cls))
                                       ,@(map car actuals))
                          type)
@@ -2108,25 +2114,6 @@ For detailed usage instructions see MANUAL.md.
              (cond ((local? binding) (local.slot binding))
                    ((global? binding) (global.id binding))
                    (else (canthappen)))))
-          ((eq? (car e) '%object-desc%)
-           (if (not (= (length e) 2))
-               (fail "Bad form"))
-           (render-get-descriptor-addr cx env (descend (cadr e))))
-          ((eq? (car e) '%object-desc-length%)
-           (if (not (= (length e) 2))
-               (fail "Bad form"))
-           `(i32.load offset = 4 ,(descend (cadr e))))
-          ((eq? (car e) '%object-desc-id%)
-           (if (not (= (length e) 2))
-               (fail "Bad form"))
-           `(i32.load ,(descend (cadr e))))
-          ((eq? (car e) '%object-desc-load%)
-           (if (or (not (= (length e) 3))
-                   (not (integer? (caddr e)))
-                   (not (exact? (caddr e)))
-                   (negative? (caddr e)))
-               (fail "Bad form"))
-           `(i32.load offset = ,(+ 8 (* 4 (caddr e))) ,(descend (cadr e))))
           (else
            (map descend e))))
 
@@ -2505,7 +2492,7 @@ For detailed usage instructions see MANUAL.md.
   (check-list expr 2 "Bad accessor" expr)
   (let-values (((base-expr cls field-name field-type)
                 (process-accessor-expression cx expr env)))
-    (values (render-maybenull-field-access cx env cls field-name base-expr)
+    (values (emit-maybenull-field-access cx env cls field-name base-expr)
             field-type)))
 
 ;; Returns rendered-base-expr class field-name field-type
@@ -2733,7 +2720,7 @@ For detailed usage instructions see MANUAL.md.
 (define (expand-object-desc cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
     (check-class-type t0 "'%object-desc%'" expr)
-    (values (render-get-descriptor-addr cx env e0) *i32-type*)))
+    (values (emit-get-descriptor-addr cx env e0 t0) *i32-type*)))
 
 (define (expand-object-desc-id cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
@@ -2877,6 +2864,23 @@ For detailed usage instructions see MANUAL.md.
           (apply fail rest)
           (fail "Expected a constant number but got" x))))
 
+;; Miscellaneous wasm support
+
+(define (wasm-class-name cls)
+  (splice "$cls_" (class.name cls)))
+
+;; Miscellaneous abstracted code generation support
+
+(define (emit-get-descriptor-addr cx env p t)
+  (if (cx.wizard? cx)
+      `(struct.get ,(wasm-class-name (type.class t)) 0 ,p)
+      (render-get-descriptor-addr cx env p)))
+
+(define (emit-maybenull-field-access cx env cls field-name base-expr)
+  (if (cx.wizard? cx)
+      `(struct.get ,(wasm-class-name cls) ,(+ 1 (field-index cls field-name)) ,base-expr)
+      (render-maybenull-field-access cx env cls field-name base-expr)))
+
 ;; JavaScript support.
 ;;
 ;; Various aspects of rendering reference types and operations on them, subject
@@ -2938,7 +2942,7 @@ For detailed usage instructions see MANUAL.md.
   (if (reference-type? t)
       (if (cx.wizard? cx)
           (cond ((class-type? t)
-                 `(ref ,(render-class-name (type.class t))))
+                 `(ref ,(wasm-class-name (type.class t))))
                 (else
                  'anyref))
           'anyref)
@@ -2948,9 +2952,6 @@ For detailed usage instructions see MANUAL.md.
   (if (void-type? t)
       '()
       (list (render-type cx t))))
-
-(define (render-class-name cls)
-  (splice "$cls_" (class.name cls)))
 
 (define (typed-object-name t)
   (string-append "TO."
