@@ -1734,7 +1734,7 @@ For detailed usage instructions see MANUAL.md.
                (let ((val+ty (widen-value cx env ev tv field-type)))
                  (if (not val+ty)
                      (check-same-type field-type tv "'set!' object field" expr))
-                 (values (render-maybenull-field-update cx env cls field-name base-expr (car val+ty))
+                 (values (emit-maybenull-field-update cx env cls field-name base-expr (car val+ty))
                          *void-type*))))
             (else
              (fail "Illegal lvalue" expr))))))
@@ -2880,6 +2880,11 @@ For detailed usage instructions see MANUAL.md.
   (if (cx.wizard? cx)
       `(struct.get ,(wasm-class-name cls) ,(+ 1 (field-index cls field-name)) ,base-expr)
       (render-maybenull-field-access cx env cls field-name base-expr)))
+
+(define (emit-maybenull-field-update cx env cls field-name base-expr val)
+  (if (cx.wizard? cx)
+      `(struct.set ,(wasm-class-name cls) ,(+ 1 (field-index cls field-name)) ,base-expr ,val)
+      (render-maybenull-field-update cx env cls field-name base-expr val)))
 
 ;; JavaScript support.
 ;;
