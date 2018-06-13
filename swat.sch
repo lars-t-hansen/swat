@@ -1404,11 +1404,11 @@ For detailed usage instructions see MANUAL.md.
         ((and (class-type? value-type)
               (class-type? target-type)
               (proper-subclass? (type.class value-type) (type.class target-type)))
-         (list (render-upcast-class-to-class cx env (type.class target-type) value)
+         (list (emit-upcast-class-to-class cx env (type.class target-type) value)
                target-type))
         ((and (class-type? value-type)
               (anyref-type? target-type))
-         (list (render-upcast-class-to-anyref cx env value)
+         (list (emit-upcast-class-to-anyref cx env value)
                target-type))
         ((and (Vector-type? value-type)
               (anyref-type? target-type))
@@ -1904,7 +1904,7 @@ For detailed usage instructions see MANUAL.md.
                    ((String-type? t)
                     (values (render-upcast-string-to-anyref cx env e) target-type))
                    ((class-type? t)
-                    (values (render-upcast-class-to-anyref cx env e) target-type))
+                    (values (emit-upcast-class-to-anyref cx env e) target-type))
                    ((Vector-type? t)
                     (values (render-upcast-maybenull-vector-to-anyref cx env (type.vector-element t) e) target-type))
                    (else
@@ -1923,7 +1923,7 @@ For detailed usage instructions see MANUAL.md.
                         (cond ((class=? value-cls target-cls)
                                (values e t))
                               ((subclass? value-cls target-cls)
-                               (values (render-upcast-class-to-class cx env target-cls e)
+                               (values (emit-upcast-class-to-class cx env target-cls e)
                                        (class.type target-cls)))
                               ((subclass? target-cls value-cls)
                                (downcast-maybenull-class-to-class cx env target-cls e t))
@@ -2885,6 +2885,16 @@ For detailed usage instructions see MANUAL.md.
   (if (cx.wizard? cx)
       `(struct.set ,(wasm-class-name cls) ,(+ 1 (field-index cls field-name)) ,base-expr ,val)
       (render-maybenull-field-update cx env cls field-name base-expr val)))
+
+(define (emit-upcast-class-to-class cx env target-cls value)
+  (if (cx.wizard? cx)
+      value
+      (render-upcast-class-to-class cx env target-cls value)))
+
+(define (emit-upcast-class-to-anyref cx env value)
+  (if (cx.wizard? cx)
+      value
+      (render-upcast-class-to-anyref cx env value)))
 
 ;; JavaScript support.
 ;;
