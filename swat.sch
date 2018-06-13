@@ -573,24 +573,26 @@ For detailed usage instructions see MANUAL.md.
 ;; Classes
 
 (define-record-type class
-  (%make-class% name base fields resolved? type host virtuals subclasses depth)
+  (%make-class% name base fields resolved? type host virtuals subclasses depth desc-addr)
   class?
   (name       class.name)                              ; Class name as symbol
   (base       class.base       class.base-set!)        ; Base class object, or #f in Object
   (fields     class.fields     class.fields-set!)      ; ((name type-object) ...)
   (resolved?  class.resolved?  class.resolved-set!)    ; #t iff class has been resolved
   (type       class.type       class.type-set!)        ; Type object referencing this class object
-  (host       class.host       class.host-set!)        ; Host system information
+  (host       class.host       class.host-set!)        ; Host system information [FIXME: improve name, doc]
   (virtuals   class.virtuals   class.virtuals-set!)    ; Virtuals map: Map from virtual-function-id to
                                                        ;   function when function is called on instance of
                                                        ;   this class as list ((vid function) ...), the
                                                        ;   function stores its own table index.
   (subclasses class.subclasses class.subclasses-set!)  ; List of direct subclasses, unordered
-  (depth      class.depth      class.depth-set!))      ; Depth in the hierarchy, Object==0
+  (depth      class.depth      class.depth-set!)       ; Depth in the hierarchy, Object==0
+  (desc-addr  class.desc-addr))                        ; Indirection cell holding descriptor address
 
 (define (make-class name base fields)
   (%make-class% name base fields
-                #|resolved?|# #f #|type|# #f #|host|# #f #|virtuals|# '() #|subclasses|# '() #|depth|# 0))
+                #|resolved?|# #f #|type|# #f #|host|# #f #|virtuals|# '() #|subclasses|# '() #|depth|# 0
+                #|desc-addr|# (make-indirection)))
 
 (define (class=? a b)
   (eq? a b))
@@ -1818,7 +1820,12 @@ For detailed usage instructions see MANUAL.md.
                   (fields  (class.fields cls))
                   (actuals (expand-expressions cx (cddr expr) env))
                   (actuals (check-and-widen-arguments cx env fields actuals expr)))
-             (values (render-new-class cx env cls actuals) type)))
+             (if (cx.wizard? cx)
+                 (values `(struct.new ,(render-class-name cls)
+                                      (i32.const ,(class.desc-addr cls))
+                                      ,@(map car actuals))
+                         type)
+                 (values (render-new-class cx env cls actuals) type))))
           ((Vector-type? type)
            (check-list expr 4 "Bad arguments to 'new'" expr)
            (let*-values (((el tl) (expand-expr cx (caddr expr) env))
@@ -3084,14 +3091,15 @@ For detailed usage instructions see MANUAL.md.
 ;; Search for class-downcast-test.
 
 (define (synthesize-class-descriptors cx env)
-  (for-each (lambda (cls)
-              (format-type cx (class.name cls)
-                           "new TO.StructType({~a})"
-                           (comma-separate (cons "_desc_:TO.int32"
-                                                 (map (lambda (f)
-                                                        (string-splice "'" (car f) "':" (typed-object-name (cadr f))))
-                                                      (class.fields cls))))))
-            (classes env)))
+  (if (not (cx.wizard? cx))
+      (for-each (lambda (cls)
+                  (format-type cx (class.name cls)
+                               "new TO.StructType({~a})"
+                               (comma-separate (cons "_desc_:TO.int32"
+                                                     (map (lambda (f)
+                                                            (string-splice "'" (car f) "':" (typed-object-name (cadr f))))
+                                                          (class.fields cls))))))
+                (classes env))))
 
 (define (emit-class-descriptors cx env)
 
@@ -3120,7 +3128,10 @@ For detailed usage instructions see MANUAL.md.
                 (for-each (lambda (d)
                             (cx.data-set! cx (cons d (cx.data cx))))
                           table)
-                (format-desc cx (class.name cls) "~a" (+ addr (* 4 (length virtuals))))))
+                (let ((desc-addr (+ addr (* 4 (length virtuals)))))
+                  (indirection-set! (class.desc-addr cls) desc-addr)
+                  (if (not (cx.wizard? cx))
+                      (format-desc cx (class.name cls) "~a" desc-addr)))))
             (classes env)))
 
 ;; Once we have field access in wasm the the 'get descriptor' operation will be
