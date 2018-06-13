@@ -12,7 +12,10 @@ G1.compile().then(function(module) {
   var i1 = new WebAssembly.Instance(module, {lib:G1.lib});
   assertEq(i1.exports.run(), 42);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")
 
 (defmodule G2
@@ -41,5 +44,8 @@ G2.compile().then(function(module) {
   assertEq(i2.set_imp(3), 8);
   assertEq(glob.value, 8);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

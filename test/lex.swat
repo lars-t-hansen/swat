@@ -435,7 +435,7 @@ function run() {
 }
 
 Lex.compile().then(function(module) {
-  lex = new WebAssembly.Instance(Lex.module,
+  lex = new WebAssembly.Instance(module,
                                  {lib: Lex.lib,
                                   '': {'getchar': getchar,
                                        'token-clear': token_clear,
@@ -451,5 +451,8 @@ Lex.compile().then(function(module) {
                                        'bad-number': bad_number}}).exports;
   run();
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

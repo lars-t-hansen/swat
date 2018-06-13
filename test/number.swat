@@ -31,7 +31,7 @@
 
 (js "
 Num.compile().then(function(module) {
-  let m = new WebAssembly.Instance(m, {lib:Num.lib}).exports;
+  let m = new WebAssembly.Instance(module, {lib:Num.lib}).exports;
   assertEq(isNaN(m.f64_nan_1), true);
   assertEq(isNaN(m.f64_nan_2), true);
   assertEq(isNaN(m.f32_nan), true);
@@ -52,5 +52,8 @@ Num.compile().then(function(module) {
   assertEq(m.f64_ninf_2 < 0, true);
   assertEq(m.f32_ninf < 0, true);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

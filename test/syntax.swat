@@ -123,7 +123,10 @@ Misc.compile().then(function(module) {
   assertEq(i.t_trap(0), 0);
   let thrown = false; try { i.t_trap(1) } catch (e) { thrown = true }; assertEq(thrown, true);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")
 
 (defmodule Case
@@ -179,7 +182,10 @@ Case.compile().then(function(module) {
   assertEq(i.t_case_1(-1), 4);
   assertEq(i.t_case_1(-2), 3);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")
 
 (defmodule Let
@@ -215,7 +221,10 @@ Let.compile().then(function(module) {
   assertEq(ins.t1(10), undefined);
   assertEq(ins.t2(1,2), 2001);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")
 
 (defmodule LetStar
@@ -231,7 +240,10 @@ LetStar.compile().then(function(module) {
   let ins = new WebAssembly.Instance(module, {lib:LetStar.lib}).exports;
   assertEq(ins.f(0), 6);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")
 
 ;; test inc! and dec! on both locals and globals and fields
@@ -257,7 +269,10 @@ IncDec.compile().then(function(module) {
   assertEq(ins.test(0), 1)
   assertEq(ins.test(1), -1)
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")
 
 (defmodule Do
@@ -279,6 +294,9 @@ Do.compile().then(function(module) {
    assertEq(ins.v.value, 3);
    assertEq(ins.k.value, -3);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")
 

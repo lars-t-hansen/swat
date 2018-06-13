@@ -16,7 +16,7 @@ compile: function () { return fetch('snake.wasm').then(WebAssembly.compileStream
 },
  types:
  {
-'Vector': new TO.StructType({_desc_:TO.int32, _length_:TO.int32, _memory_: TO.Object}),
+'Vector': new TO.StructType({_vdesc_:TO.int32, _length_:TO.int32, _memory_: TO.Object}),
 'Object':new TO.StructType({_desc_:TO.int32}),
 'Board':new TO.StructType({_desc_:TO.int32,'height':TO.int32,'width':TO.int32,'tiles':TO.Object}),
 'Tile':new TO.StructType({_desc_:TO.int32,'element':TO.Object}),
@@ -46,7 +46,7 @@ function (len, init) {
   let mem = new Array(len);
   for (let i = 0; i < len; i++)
     mem[i] = init;
-  return new self.types.Vector({_desc_: 0, _length_: len, _memory_: mem});
+  return new self.types.Vector({_vdesc_: 0, _length_: len, _memory_: mem});
 },
 '_new_Board':function (height,width,tiles) { return new self.types.Board({_desc_:self.desc.Board,height,width,tiles}) },
 '_string_literal':function (n) { return self.strings[n] },

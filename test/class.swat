@@ -5,9 +5,15 @@
   (defclass Ipso
     (x f32))
   
+  (defun+ (make_Ipso (v f32) -> Ipso)
+    (new Ipso v))
+
   (defclass Box (extends Ipso)
     (value i32)
     (next Other))
+
+  (defun+ (make_Box (x f32) (y i32) (o Other) -> Box)
+    (new Box x y o))
 
   (defclass Other
     (next Box))
@@ -57,7 +63,7 @@
 (js "
 Classtest.compile().then(function(module) {
   var i = new WebAssembly.Instance(module, {lib:Classtest.lib}).exports;
-  var b = Classtest.lib._new_Box(12, 37, null)
+  var b = i.make_Box(12, 37, null)
   assertEq(i.get4(), 33);
   assertEq(i.get(b), 37);
   assertEq(i.get2(b), 49);
@@ -71,10 +77,13 @@ Classtest.compile().then(function(module) {
   assertEq(i.get(b), 42);
   assertEq(b.value, 42);
   assertEq(i.test(b), 1);
-  var ipso = Classtest.lib._new_Ipso(5);
+  var ipso = i.make_Ipso(5);
   assertEq(i.test(ipso), 0);
   assertEq(i.narrow(b), b);
   var x=false; try { assertEq(i.narrow(ipso), ipso); } catch (e) { x=true; } assertEq(x, true);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

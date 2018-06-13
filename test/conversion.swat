@@ -93,5 +93,8 @@ Conversion.compile().then(function(module) {
   assertEq(i.f64_to_bits_lo(-0), 0);
   assertEq(i.bits_to_f64(-0x80000000, 0), -0);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

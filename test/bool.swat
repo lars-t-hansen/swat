@@ -57,5 +57,8 @@ Boolean.compile().then(function(module) {
   assertEq(i.t_zero(7), 1);
   assertEq(i.t_zero(8), 0);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

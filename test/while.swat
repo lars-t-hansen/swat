@@ -14,5 +14,8 @@ While.compile().then(function(module) {
   let ins = new WebAssembly.Instance(module, {lib: While.lib}).exports;
   assertEq(ins.run(10), 55);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

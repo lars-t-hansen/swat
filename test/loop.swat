@@ -40,5 +40,8 @@ Loop.compile().then(function(module) {
         assertEq(results[i], expected[i]);
   }
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")

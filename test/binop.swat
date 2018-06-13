@@ -269,6 +269,9 @@ Binop.compile().then(function(module) {
   assertEq(i.eq_f32(0,1), 0);
   assertEq(i.eq_f32(1,1), 1);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")
 

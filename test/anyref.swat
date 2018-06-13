@@ -136,11 +136,12 @@ AnyRef.compile().then(function(module) {
   assertEq(i.c_as_a(c), c);
   assertEq(i.c_widento_a(c), c);
   assertEq(i.a_is_c(c), 1);
+  assertEq(i.a_is_c(e), 0);
   assertEq(i.a_is_c(null), 0);
   assertEq(i.a_is_c('hi'), 0);
   assertEq(i.a_is_c(x), 0);
   assertEq(i.a_as_c(c), c);
-  try { exn=null; i.a_as_c(null) } catch (e) { exn=e }; assertEq(!!exn, true);
+  assertEq(i.a_as_c(null), null);
   try { exn=null; i.a_as_c('hi') } catch (e) { exn=e }; assertEq(!!exn, true);
   try { exn=null; i.a_as_c(x) } catch (e) { exn=e }; assertEq(!!exn, true);
   try { exn=null; i.a_as_c(e) } catch (e) { exn=e }; assertEq(!!exn, true);
@@ -157,5 +158,8 @@ AnyRef.compile().then(function(module) {
   assertEq(i.c_is_d(f), 0);
   try { exn=null; i.c_as_d(f) } catch (e) { exn=e }; assertEq(!!exn, true);
 },
-function(err) { throw err })
+function(err) { throw err }).catch(function (e) {
+    print('FAILURE: ' + e);
+    quit(1);
+})
 ")
