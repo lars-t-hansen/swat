@@ -517,7 +517,9 @@ For detailed usage instructions see MANUAL.md.
   (if (cx.wizard? cx)
       (map (lambda (cls)
              `(type ,(render-class-name cls)
-                    (struct ,@(map (lambda (x) `(field ,(render-type cx (cadr x)))) (class.fields cls)))))
+                    (struct (field i32)
+                            ,@(map (lambda (x) `(field ,(render-type cx (cadr x))))
+                                   (class.fields cls)))))
            (classes env))
       '()))
 
