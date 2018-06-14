@@ -1974,28 +1974,30 @@ For detailed usage instructions see MANUAL.md.
 ;; TODO: the render here could be a primitive?  %nonnull-anyref-unbox-object%
 
 (define (maybenull-anyref-is-class cx env cls val valty)
-  (let ((obj  (new-name cx "p"))
-        (desc (new-name cx "a"))
-        (tmp  (new-name cx "t")))
-    (expand-expr
-     cx
-     `(%let% ((,obj (%wasm% ,valty ,val)))
-        (%if% (%null?% ,obj)
-              #f
-              (%let% ((,tmp (%wasm% ,*Object-type*
-                                    ,(render-maybe-unbox-nonnull-anyref-as-object cx env `(get_local (%id% ,obj))))))
-                 (%if% (%null?% ,tmp)
-                       #f
-                       (%let% ((,desc (%object-desc% ,tmp)))
-                          (%and% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
-                                 (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))))
-     env)))
+  (if (cx.wizard? cx)
+      (downcast-maybenull-to-class cx env cls val valty (lambda (name) 1) #f #f)
+      (let ((obj  (new-name cx "p"))
+            (desc (new-name cx "a"))
+            (tmp  (new-name cx "t")))
+        (expand-expr
+         cx
+         `(%let% ((,obj (%wasm% ,valty ,val)))
+             (%if% (%null?% ,obj)
+                   #f
+                   (%let% ((,tmp (%wasm% ,*Object-type*
+                                         ,(render-maybe-unbox-nonnull-anyref-as-object cx env `(get_local (%id% ,obj))))))
+                      (%if% (%null?% ,tmp)
+                            #f
+                            (%let% ((,desc (%object-desc% ,tmp)))
+                               (%and% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
+                                      (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))))
+         env))))
 
 ;; `val` is a wasm expression and `valty` is its type object.
 
 (define (downcast-maybenull-class-to-class cx env cls val valty)
   (if (cx.wizard? cx)
-      (downcast-maybenull-to-class cx env cls val valty)
+      (downcast-maybenull-to-class cx env cls val valty (lambda (name) name) `(%null% ,(class.name cls)) `(trap ,(class.name cls)))
       (let ((obj  (new-name cx "p"))
             (desc (new-name cx "a")))
         (expand-expr
@@ -2015,30 +2017,29 @@ For detailed usage instructions see MANUAL.md.
 
 (define (downcast-maybenull-anyref-to-class cx env cls val)
   (if (cx.wizard? cx)
-      (downcast-maybenull-to-class cx env cls val *anyref-type*)
+      (downcast-maybenull-to-class cx env cls val *anyref-type* (lambda (name) name) `(%null% ,(class.name cls)) `(trap ,(class.name cls)))
       (downcast-maybenull-class-to-class cx env cls
                                          (render-unbox-maybenull-anyref-as-object cx env val)
                                          *Object-type*)))
 
-(define (downcast-maybenull-to-class cx env cls val valty)
+(define (downcast-maybenull-to-class cx env cls val valty succeed ifnull fail)
   (assert (cx.wizard? cx))
   (let ((obj  (new-name cx "p"))
         (nobj (new-name cx "p"))
         (desc (new-name cx "a"))
-        (ty   (class.type cls))
-        (fail `(trap ,(class.name cls))))
+        (ty   (class.type cls)))
     (expand-expr
      cx
      `(%let% ((,obj (%wasm% ,valty ,val)))
          (%if% (%null?% ,obj)
-               (%null% ,(class.name cls))
+               ,ifnull
                (%let% ((,nobj (%wasm% ,ty (struct.narrow ,(render-type cx valty) ,(render-type cx ty) (get_local (%id% ,obj))))))
                   (%if% (%null?% ,nobj)
                         ,fail
-                        (%let% ((,desc (%object-desc% ,obj)))
+                        (%let% ((,desc (%object-desc% ,nobj)))
                            (%if% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
                                  (%if% (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))
-                                       ,nobj
+                                       ,(succeed nobj)
                                        ,fail)
                                  ,fail))))))
      env)))
@@ -3802,6 +3803,10 @@ putstr(Array.prototype.join.call(new Uint8Array(" module-bytes "), ' '));
     (flush)
     (display x out))
 
+  (define (type? x)
+    (or (symbol? x)
+        (and (list? x) (= (length x) 2) (eq? (car x) 'ref))))
+
   (define (print-indented x on-initial-line? exprs indents)
     (pr #\()
     (print (car x))
@@ -3835,10 +3840,10 @@ putstr(Array.prototype.join.call(new Uint8Array(" module-bytes "), ' '));
                     0 1))
 
   (define (print-if x)
-    (print-indented x symbol? 1 2))
+    (print-indented x type? 1 2))
 
   (define (print-block x)
-    (print-indented x symbol? 0 1))
+    (print-indented x type? 0 1))
 
   (define (print-list x)
     (print-indented x (lambda (x) #t) 0 0))
