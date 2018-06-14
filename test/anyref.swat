@@ -116,7 +116,7 @@ AnyRef.compile().then(function(module) {
                                      m  : { nope: () => 'abracadabra' } }).exports;
 
   // Currently SpiderMonkey coerces JS string values to JS String objects, so we must coerce back here.
-  assertEq(i.a_is_a(null), 1);
+  assertEq(i.a_is_a(null), 0);
   assertEq(i.a_as_a(null), null);
   var x = {};
   assertEq(i.a_as_a(x), x);

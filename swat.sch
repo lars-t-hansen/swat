@@ -375,7 +375,7 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Translation context.
 
-(define-record-type cx
+(define-record-type type/cx
   (%make-cx% slots gensym-id vid support name table-index table-elements types strings string-id vector-id
              functions globals memory data wizard?)
   cx?
@@ -414,7 +414,7 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Cells for late binding of counters.
 
-(define-record-type indirection
+(define-record-type type/indirection
   (%make-indirection% n)
   indirection?
   (n indirection-get indirection-set!))
@@ -574,7 +574,7 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Classes
 
-(define-record-type class
+(define-record-type type/class
   (%make-class% name base fields resolved? type host virtuals subclasses depth desc-addr)
   class?
   (name       class.name)                              ; Class name as symbol
@@ -607,7 +607,7 @@ For detailed usage instructions see MANUAL.md.
     (define-env-global! env name (make-class-type cls))
     cls))
 
-(define-record-type accessor
+(define-record-type type/accessor
   (make-accessor name field-name)
   accessor?
   (name       accessor.name)
@@ -717,7 +717,7 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Functions
 
-(define-record-type func
+(define-record-type type/func
   (%make-func% name module export? id rendered-params formals result slots env defn table-index specialization)
   basefunc?
   (name            func.name)            ; Function name as a symbol
@@ -752,7 +752,7 @@ For detailed usage instructions see MANUAL.md.
     (%make-func% name module export? (make-indirection) rendered-params formals result slots env defn table-index
                  (make-virtual-specialization vid uber-discriminator discriminators))))
 
-(define-record-type virtual-specialization
+(define-record-type type/virtual-specialization
   (make-virtual-specialization vid uber-discriminator discriminators)
   virtual-specialization?
 
@@ -1020,6 +1020,7 @@ For detailed usage instructions see MANUAL.md.
       ;; Create the body
 
       (assemble-virtual
+       cx
        virt
        `((if (ref.is_null (get_local 0))
              (unreachable))
@@ -1034,7 +1035,7 @@ For detailed usage instructions see MANUAL.md.
                                                                 (virtual.vid virt))))
                            e0)))))))
 
-(define (assemble-virtual virtual body)
+(define (assemble-virtual cx virtual body)
   (let ((f (prepend-signature cx
                               (func.name virtual)
                               (func.rendered-params virtual)
@@ -1095,7 +1096,7 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Globals
 
-(define-record-type global
+(define-record-type type/global
   (%make-global% name module export? mut? id type init)
   global?
   (name    global.name)
@@ -1161,7 +1162,7 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Locals
 
-(define-record-type local
+(define-record-type type/local
   (make-local name slot type)
   local?
   (name local.name)
@@ -1170,7 +1171,7 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Local slots storage
 
-(define-record-type slots
+(define-record-type type/slots
   (%make-slots% tracker i32s i64s f32s f64s anyrefs)
   slots?
   (tracker slots.tracker)
@@ -1191,7 +1192,7 @@ For detailed usage instructions see MANUAL.md.
         ((reference-type? t) (values slots.anyrefs slots.anyrefs-set!))
         (else (canthappen))))
 
-(define-record-type slot-undo
+(define-record-type type/slot-undo
   (make-undo getter setter slot)
   slot-undo?
   (getter undo.getter)
@@ -1200,7 +1201,7 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Tracks defined slot numbers and types.  Used by the slots structure.
 
-(define-record-type tracker
+(define-record-type type/tracker
   (%make-tracker% next defined)
   tracker?
   (next    tracker.next    tracker.next-set!)     ; number of next local
@@ -1247,7 +1248,7 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Type constructors
 
-(define-record-type type-constructor
+(define-record-type type/type-constructor
   (make-type-constructor name)
   type-constructor?
   (name  type-constructor.name))
@@ -1259,7 +1260,7 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Types
 
-(define-record-type type
+(define-record-type type/type
   (make-type name primitive ref-base vector-element vector-id class vector)
   type?
   (name           type.name)            ; a symbol: the same as primitive, or one of "ref", "vector", "class"
@@ -1423,7 +1424,7 @@ For detailed usage instructions see MANUAL.md.
 
 ;; Loop labels
 
-(define-record-type loop
+(define-record-type type/loop
   (make-loop id break continue type)
   loop?
   (id       loop.id)
@@ -1569,7 +1570,7 @@ For detailed usage instructions see MANUAL.md.
   (values (render-string-literal cx env (string-literal->id cx expr))
           *String-type*))
 
-(define-record-type expander
+(define-record-type type/expander
   (%make-expander% name expander len)
   expander?
   (name     expander.name)
@@ -1627,6 +1628,7 @@ For detailed usage instructions see MANUAL.md.
   (define-env-global! env '%trap%   (make-expander '%trap% expand-trap '(oneof 1 2)))
   (define-env-global! env 'new      (make-expander 'new expand-new '(atleast 2)))
   (define-env-global! env 'null     (make-expander 'null expand-null '(precisely 2)))
+  (define-env-global! env '%null%   (make-expander '%null% expand-null '(precisely 2)))
   (define-env-global! env 'is       (make-expander 'is expand-is '(precisely 3)))
   (define-env-global! env 'as       (make-expander 'as expand-as '(precisely 3)))
   (define-env-global! env '%wasm%   (make-expander '%wasm% expand-wasm '(oneof 2 3))))
@@ -1862,7 +1864,7 @@ For detailed usage instructions see MANUAL.md.
          (target-type (parse-type cx env tyexpr)))
     (let-values (((e t) (expand-expr cx (caddr expr) env)))
       (cond ((anyref-type? target-type)
-             (values `(block i32 ,e drop (i32.const 1)) *i32-type*))
+             (values `(i32.eqz (ref.is_null ,e)) *i32-type*))
             ((String-type? target-type)
              (cond ((String-type? t)
                     `(block i32 ,e drop (i32.const 1)))
@@ -1875,7 +1877,7 @@ For detailed usage instructions see MANUAL.md.
                (cond ((class-type? t)
                       (let ((value-cls  (type.class t)))
                         (cond ((subclass? value-cls target-cls)
-                               (values `(block i32 ,e drop (i32.const 1)) *i32-type*))
+                               (values `(i32.eqz (ref.is_null ,e)) *i32-type*))
                               ((subclass? target-cls value-cls)
                                (maybenull-class-is-class cx env target-cls e t))
                               (else
@@ -1886,7 +1888,7 @@ For detailed usage instructions see MANUAL.md.
                       (fail "Expression in 'is' is not of class type" expr)))))
             ((Vector-type? target-type)
              (cond ((and (Vector-type? t) (type=? target-type t))
-                    `(block i32 ,e dro (i32.const 1)))
+                    (values `(i32.eqz (ref.is_null ,e)) *i32-type*))
                    ((anyref-type? t)
                     (maybenull-anyref-is-vector cx env target-type e t))
                    (else
@@ -1992,27 +1994,54 @@ For detailed usage instructions see MANUAL.md.
 ;; `val` is a wasm expression and `valty` is its type object.
 
 (define (downcast-maybenull-class-to-class cx env cls val valty)
-  (let ((obj  (new-name cx "p"))
-        (desc (new-name cx "a")))
-    (expand-expr
-     cx
-     `(%let% ((,obj (%wasm% ,valty ,val)))
-        (%if% (%null?% ,obj)
-              (%wasm% ,(class.type cls) (get_local (%id% ,obj)))
-              (%let% ((,desc (%object-desc% ,obj)))
-                (%if% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
-                      (%if% (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))
-                            (%wasm% ,(class.type cls) (get_local (%id% ,obj)))
-                            (%wasm% ,(class.type cls) (unreachable)))
-                      (%wasm% ,(class.type cls) (unreachable))))))
-     env)))
+  (if (cx.wizard? cx)
+      (downcast-maybenull-to-class cx env cls val valty)
+      (let ((obj  (new-name cx "p"))
+            (desc (new-name cx "a")))
+        (expand-expr
+         cx
+         `(%let% ((,obj (%wasm% ,valty ,val)))
+             (%if% (%null?% ,obj)
+                   (%wasm% ,(class.type cls) (get_local (%id% ,obj)))
+                   (%let% ((,desc (%object-desc% ,obj)))
+                      (%if% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
+                            (%if% (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))
+                                  (%wasm% ,(class.type cls) (get_local (%id% ,obj)))
+                                  (%wasm% ,(class.type cls) (unreachable)))
+                            (%wasm% ,(class.type cls) (unreachable))))))
+         env))))
 
 ;; TODO: the render here could be a primitive?  %maybenull-anyref-unbox-object%
 
 (define (downcast-maybenull-anyref-to-class cx env cls val)
-  (downcast-maybenull-class-to-class cx env cls
-                                     (render-unbox-maybenull-anyref-as-object cx env val)
-                                     *Object-type*))
+  (if (cx.wizard? cx)
+      (downcast-maybenull-to-class cx env cls val *anyref-type*)
+      (downcast-maybenull-class-to-class cx env cls
+                                         (render-unbox-maybenull-anyref-as-object cx env val)
+                                         *Object-type*)))
+
+(define (downcast-maybenull-to-class cx env cls val valty)
+  (assert (cx.wizard? cx))
+  (let ((obj  (new-name cx "p"))
+        (nobj (new-name cx "p"))
+        (desc (new-name cx "a"))
+        (ty   (class.type cls))
+        (fail `(trap ,(class.name cls))))
+    (expand-expr
+     cx
+     `(%let% ((,obj (%wasm% ,valty ,val)))
+         (%if% (%null?% ,obj)
+               (%null% ,(class.name cls))
+               (%let% ((,nobj (%wasm% ,ty (struct.narrow ,(render-type cx valty) ,(render-type cx ty) (get_local (%id% ,obj))))))
+                  (%if% (%null?% ,nobj)
+                        ,fail
+                        (%let% ((,desc (%object-desc% ,obj)))
+                           (%if% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
+                                 (%if% (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))
+                                       ,nobj
+                                       ,fail)
+                                 ,fail))))))
+     env)))
 
 ;; TODO: the render here could be a primitive?  %maybenull-anyref-unbox-string%
 
@@ -2905,7 +2934,7 @@ For detailed usage instructions see MANUAL.md.
 ;; even for per-class functions; it's the initial lookup that would trigger the
 ;; generation.
 
-(define-record-type js-support
+(define-record-type type/js-support
   (%make-js-support% type lib desc strings class-id)
   js-support?
   (type     support.type)
