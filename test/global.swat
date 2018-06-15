@@ -34,7 +34,7 @@ function(err) { throw err }).catch(function (e) {
 
 (js "
 G2.compile().then(function(module) {
-  var glob = new WebAssembly.Global({type:'i32', mutable:true, value: 5});
+  var glob = new WebAssembly.Global({value:'i32', mutable:true}, 5);
 
   var i2 = new WebAssembly.Instance(module, {m: {imp_var: glob, imp_const: 37},
                                              lib: G2.lib}).exports;
