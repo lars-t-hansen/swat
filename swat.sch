@@ -992,16 +992,26 @@ For detailed usage instructions see MANUAL.md.
     (virtual.uber-discriminator-set! virt disc-cls)
     (virtual.discriminators-set! virt (reverse discs))
 
-    ;; Assign table IDs to the functions
+    ;; Assign table IDs to the functions or trampolines.
 
-    (for-each (lambda (b)
-                (let ((func (lookup-func-or-virtual env (cadr b))))
-                  (if (not (func.table-index func))
+    ;; For typed mode with current virtuals we need to inject trampolines that
+    ;; perform the downcasts along the call path when those casts are needed.
+    ;; Also see FIXME above.
+
+    (for-each (lambda (disc)
+                (let ((disc-cls  (car disc))
+                      (disc-meth (cadr disc)))
+                  (if (and (cx.wizard? cx)
+                           (not (class=? disc-cls (type.class (cadr (car v-formals))))))
+                      (let ((trampoline (create-virtual-trampoline cx env virt disc-cls disc-meth)))
+                        (set-car! (cdr disc) trampoline)
+                        (set! disc-meth trampoline)))
+                  (if (not (func.table-index disc-meth))
                       (let ((index (cx.table-index cx)))
                         (cx.table-index-set! cx (+ index 1))
-                        (func.table-index-set! func index)
-                        (cx.table-elements-set! cx (cons (func.id func) (cx.table-elements cx)))))))
-              body)
+                        (func.table-index-set! disc-meth index)
+                        (cx.table-elements-set! cx (cons (func.id disc-meth) (cx.table-elements cx)))))))
+              (virtual.discriminators virt))
 
     ;; Hash-cons the signature
 
@@ -1019,21 +1029,27 @@ For detailed usage instructions see MANUAL.md.
 
       ;; Create the body
 
+      ;; TODO: The null check is redundant because resolve-nonnull-virtual will
+      ;; expand to a struct.get that performs a null check anyway.
+
       (assemble-virtual
        cx
        virt
        `((if (ref.is_null (get_local 0))
              (unreachable))
          (call_indirect ,typeref
-                        ,@(do ((i  0         (+ i 1))
-                               (fs v-formals (cdr fs))
-                               (xs '()       (cons `(get_local ,i) xs)))
-                              ((null? fs) (reverse xs)))
+                        ,@(forward-arguments v-formals)
                         ,(let-values (((e0 t0)
                                        (resolve-nonnull-virtual cx env
                                                                 '(get_local 0) (class.type disc-cls)
                                                                 (virtual.vid virt))))
                            e0)))))))
+
+(define (forward-arguments formals)
+  (do ((i  0       (+ i 1))
+       (fs formals (cdr fs))
+       (xs '()     (cons `(get_local ,i) xs)))
+      ((null? fs) (reverse xs))))
 
 (define (assemble-virtual cx virtual body)
   (let ((f (prepend-signature cx
@@ -1044,6 +1060,31 @@ For detailed usage instructions see MANUAL.md.
                               body)))
     (func.defn-set! virtual f)
     f))
+
+;; We want to generate a function that has the same signature as the virtual and
+;; a body that calls the target function with a downcast of the descriminator
+;; argument to the target type.
+
+(define (create-virtual-trampoline cx env virtual clause-cls disc-meth)
+  (assert (cx.wizard? cx))
+  (let* ((name        (new-name cx "trampoline"))
+         (module      #f)
+         (export?     #f)
+         (formals     (func.formals virtual))
+         (params      (func.rendered-params virtual))
+         (result-type (func.result virtual))
+         (slots       (make-slots))
+         (func        (define-function! cx env name module export? params formals result-type slots))
+         (virt-cls    (virtual.uber-discriminator virtual)))
+    (assemble-function
+     cx func
+     `((call ,(func.id disc-meth)
+             (struct.narrow
+              ,(render-type cx (class.type virt-cls))
+              ,(render-type cx (class.type clause-cls))
+              (get_local 0))
+             ,@(cdr (forward-arguments formals)))))
+    func))
 
 (define (transitive-subclasses cls)
   (cons cls (apply append (map transitive-subclasses (class.subclasses cls)))))
