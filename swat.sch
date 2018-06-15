@@ -1226,6 +1226,13 @@ For detailed usage instructions see MANUAL.md.
 (define (make-slots)
   (%make-slots% (make-tracker) '() '() '() '() '()))
 
+;; FIXME: Oof, totally bad.
+;;
+;; Basically type/slots should be an assoc list (type . slots), where slots is
+;; itself an object (maybe just a cons) that holds the list of free slots.
+;; Perhaps it's not even that - it's just a getter/setter pair with a private
+;; variable between them.
+
 (define (slot-accessors-for-type t)
   (cond ((i32-type? t) (values slots.i32s slots.i32s-set!))
         ((i64-type? t) (values slots.i64s slots.i64s-set!))
@@ -1778,7 +1785,7 @@ For detailed usage instructions see MANUAL.md.
                (let ((val+ty (widen-value cx env ev tv field-type)))
                  (if (not val+ty)
                      (check-same-type field-type tv "'set!' object field" expr))
-                 (values (wast-maybenull-field-update cx env cls field-name base-expr (car val+ty))
+                 (values (wast-maybenull-field-update cx env cls field-name base-expr (car val+ty) (cadr val+ty))
                          *void-type*))))
             (else
              (fail "Illegal lvalue" expr))))))
@@ -2985,9 +2992,12 @@ For detailed usage instructions see MANUAL.md.
       `(struct.get ,(wast-class-name cls) ,(+ 1 (field-index cls field-name)) ,base-expr)
       (render-maybenull-field-access cx env cls field-name base-expr)))
 
-(define (wast-maybenull-field-update cx env cls field-name base-expr val)
+(define (wast-maybenull-field-update cx env cls field-name base-expr val valty)
   (if (cx.wizard? cx)
-      `(struct.set ,(wast-class-name cls) ,(+ 1 (field-index cls field-name)) ,base-expr ,val)
+      (let ((index (+ 1 (field-index cls field-name))))
+        (if (reference-type? valty)
+            (render-maybenull-ref-field-update cx env cls (splice "_" index) valty base-expr val)
+            `(struct.set ,(wast-class-name cls) ,index ,base-expr ,val)))
       (render-maybenull-field-update cx env cls field-name base-expr val)))
 
 (define (wast-upcast-class-to-class cx env target-cls value)
@@ -3326,6 +3336,17 @@ function (p) {
                                        (splice "_maybenull_set_" (class.name cls) "_" field-name)
                                        synthesize-maybenull-field-update
                                        cls field-name)))
+    `(call ,(func.id func) ,base-expr ,val-expr)))
+
+(define (synthesize-maybenull-ref-field-update cx env name cls field-name field-type)
+  (js-lib cx env name `(,(class.type cls) ,field-type) *void-type* "function (p, v) { p.~a = v }" field-name))
+
+(define (render-maybenull-ref-field-update cx env cls field-name field-type base-expr val-expr)
+  (assert (cx.wizard? cx))
+  (let ((func (lookup-synthesized-func cx env
+                                       (splice "_maybenull_set_" (class.name cls) "_" field-name)
+                                       synthesize-maybenull-ref-field-update
+                                       cls field-name field-type)))
     `(call ,(func.id func) ,base-expr ,val-expr)))
 
 ;; Strings and string literals
