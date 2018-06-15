@@ -486,6 +486,7 @@ For detailed usage instructions see MANUAL.md.
     (compute-dispatch-maps cx env)
     (renumber-globals cx env)
     (renumber-functions cx env)
+    (compute-class-descriptors cx env)
     (emit-class-descriptors cx env)
     (emit-string-literals cx env)
     (values name
@@ -516,9 +517,9 @@ For detailed usage instructions see MANUAL.md.
 (define (generate-class-types cx env)
   (if (cx.wizard? cx)
       (map (lambda (cls)
-             `(type ,(code/class-name cls)
+             `(type ,(wast-class-name cls)
                     (struct (field i32)
-                            ,@(map (lambda (x) `(field ,(code/type-name cx (cadr x))))
+                            ,@(map (lambda (x) `(field ,(wast-type-name cx (cadr x))))
                                    (class.fields cls)))))
            (classes env))
       '()))
@@ -535,7 +536,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define (generate-globals cx env)
   (map (lambda (g)
-         (let* ((t (code/type-name cx (global.type g)))
+         (let* ((t (wast-type-name cx (global.type g)))
                 (t (if (global.mut? g) `(mut ,t) t)))
            (if (global.module g)
                `(import ,(global.module g) ,(symbol->string (global.name g)) (global ,t))
@@ -575,14 +576,14 @@ For detailed usage instructions see MANUAL.md.
 ;; Classes
 
 (define-record-type type/class
-  (%make-class% name base fields resolved? type host virtuals subclasses depth desc-addr)
+  (%make-class% name base fields resolved? type label virtuals subclasses depth desc-addr)
   class?
   (name       class.name)                              ; Class name as symbol
   (base       class.base       class.base-set!)        ; Base class object, or #f in Object
   (fields     class.fields     class.fields-set!)      ; ((name type-object) ...)
   (resolved?  class.resolved?  class.resolved-set!)    ; #t iff class has been resolved
   (type       class.type       class.type-set!)        ; Type object referencing this class object
-  (host       class.host       class.host-set!)        ; Host system information [FIXME: improve name, doc]
+  (label      class.label      class.label-set!)       ; Integer ID for class, or #f
   (virtuals   class.virtuals   class.virtuals-set!)    ; Virtuals map: Map from virtual-function-id to
                                                        ;   function when function is called on instance of
                                                        ;   this class as list ((vid function) ...), the
@@ -593,7 +594,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define (make-class name base fields)
   (%make-class% name base fields
-                #|resolved?|# #f #|type|# #f #|host|# #f #|virtuals|# '() #|subclasses|# '() #|depth|# 0
+                #|resolved?|# #f #|type|# #f #|label|# #f #|virtuals|# '() #|subclasses|# '() #|depth|# 0
                 #|desc-addr|# (make-indirection)))
 
 (define (class=? a b)
@@ -835,7 +836,7 @@ For detailed usage instructions see MANUAL.md.
   (let* ((f body)
          (f (if (void-type? result-type)
                 f
-                (cons `(result ,(code/type-name cx result-type)) f)))
+                (cons `(result ,(wast-type-name cx result-type)) f)))
          (f (append rendered-params f))
          (f (if export?
                 (cons `(export ,(symbol->string name)) f)
@@ -882,7 +883,7 @@ For detailed usage instructions see MANUAL.md.
                      (loop (cdr xs)
                            (cons (cons name (make-local name slot t)) bindings)
                            (cons (list name t) formals)
-                           (cons `(param ,(code/type-name cx t)) params)))))))))))
+                           (cons `(param ,(wast-type-name cx t)) params)))))))))))
 
 (define (renumber-functions cx env)
   (let ((functions (reverse (cx.functions cx)))
@@ -1018,7 +1019,7 @@ For detailed usage instructions see MANUAL.md.
     (let ((typeref
            (let ((t `(func ,@(func.rendered-params virt)
                            ,@(if (not (void-type? (func.result virt)))
-                                 `((result ,(code/type-name cx (func.result virt))))
+                                 `((result ,(wast-type-name cx (func.result virt))))
                                  '()))))
              (let ((probe (assoc t (cx.types cx))))
                (if probe
@@ -1080,8 +1081,8 @@ For detailed usage instructions see MANUAL.md.
      cx func
      `((call ,(func.id disc-meth)
              (struct.narrow
-              ,(code/type-name cx (class.type virt-cls))
-              ,(code/type-name cx (class.type clause-cls))
+              ,(wast-type-name cx (class.type virt-cls))
+              ,(wast-type-name cx (class.type clause-cls))
               (get_local 0))
              ,@(cdr (forward-arguments formals)))))
     func))
@@ -1269,7 +1270,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define (get-slot-decls cx slots)
   (map (lambda (t)
-         `(local ,(code/type-name cx t)))
+         `(local ,(wast-type-name cx t)))
        (reverse (tracker.defined (slots.tracker slots)))))
 
 (define (do-claim-slot slots t record?)
@@ -1446,11 +1447,11 @@ For detailed usage instructions see MANUAL.md.
         ((and (class-type? value-type)
               (class-type? target-type)
               (proper-subclass? (type.class value-type) (type.class target-type)))
-         (list (code/upcast-class-to-class cx env (type.class target-type) value)
+         (list (wast-upcast-class-to-class cx env (type.class target-type) value)
                target-type))
         ((and (class-type? value-type)
               (anyref-type? target-type))
-         (list (code/upcast-class-to-anyref cx env value)
+         (list (wast-upcast-class-to-anyref cx env value)
                target-type))
         ((and (Vector-type? value-type)
               (anyref-type? target-type))
@@ -1563,28 +1564,28 @@ For detailed usage instructions see MANUAL.md.
     (case (string-ref name 0)
       ((#\I)
        (check-i32-value val expr)
-       (values (code/number val *i32-type*) *i32-type*))
+       (values (wast-number val *i32-type*) *i32-type*))
       ((#\L)
        (check-i64-value val expr)
-       (values (code/number val *i64-type*) *i64-type*))
+       (values (wast-number val *i64-type*) *i64-type*))
       ((#\F)
        (check-f32-value val expr)
-       (values (code/number val *f32-type*) *f32-type*))
+       (values (wast-number val *f32-type*) *f32-type*))
       ((#\D)
        (check-f64-value val expr)
-       (values (code/number val *f64-type*) *f64-type*))
+       (values (wast-number val *f64-type*) *f64-type*))
       (else (canthappen)))))
 
 (define (expand-number expr)
   (cond ((and (integer? expr) (exact? expr))
          (cond ((<= min-i32 expr max-i32)
-                (values (code/number expr *i32-type*) *i32-type*))
+                (values (wast-number expr *i32-type*) *i32-type*))
                (else
                 (check-i64-value expr)
-                (values (code/number expr *i64-type*) *i64-type*))))
+                (values (wast-number expr *i64-type*) *i64-type*))))
         ((number? expr)
          (check-f64-value expr)
-         (values (code/number expr *f64-type*) *f64-type*))
+         (values (wast-number expr *f64-type*) *f64-type*))
         ((char? expr)
          (expand-char expr))
         ((boolean? expr)
@@ -1593,10 +1594,10 @@ For detailed usage instructions see MANUAL.md.
          (fail "Bad syntax" expr))))
 
 (define (expand-char expr)
-  (values (code/number (char->integer expr) *i32-type*) *i32-type*))
+  (values (wast-number (char->integer expr) *i32-type*) *i32-type*))
 
 (define (expand-boolean expr)
-  (values (code/number (if expr 1 0) *i32-type*) *i32-type*))
+  (values (wast-number (if expr 1 0) *i32-type*) *i32-type*))
 
 (define (string-literal->id cx lit)
   (let ((probe (assoc lit (cx.strings cx))))
@@ -1729,7 +1730,7 @@ For detailed usage instructions see MANUAL.md.
                  (cond ((= (length body) 1)
                         (values (car body) ty))
                        (else
-                        (values `(block ,@(code/type-name-spliceable cx ty) ,@(reverse body)) ty))))
+                        (values `(block ,@(wast-type-name-spliceable cx ty) ,@(reverse body)) ty))))
                 ((not (void-type? ty))
                  (loop exprs (cons 'drop body) *void-type*))
                 (else
@@ -1747,7 +1748,7 @@ For detailed usage instructions see MANUAL.md.
        (let*-values (((consequent t1) (expand-expr cx (caddr expr) env))
                      ((alternate  t2) (expand-expr cx (cadddr expr) env)))
          (check-same-type t1 t2 "'if' arms" expr)
-         (values `(if ,@(code/type-name-spliceable cx t1) ,test ,consequent ,alternate) t1)))
+         (values `(if ,@(wast-type-name-spliceable cx t1) ,test ,consequent ,alternate) t1)))
       (else
        (fail "Bad 'if'" expr)))))
 
@@ -1777,7 +1778,7 @@ For detailed usage instructions see MANUAL.md.
                (let ((val+ty (widen-value cx env ev tv field-type)))
                  (if (not val+ty)
                      (check-same-type field-type tv "'set!' object field" expr))
-                 (values (code/maybenull-field-update cx env cls field-name base-expr (car val+ty))
+                 (values (wast-maybenull-field-update cx env cls field-name base-expr (car val+ty))
                          *void-type*))))
             (else
              (fail "Illegal lvalue" expr))))))
@@ -1814,7 +1815,7 @@ For detailed usage instructions see MANUAL.md.
     (let*-values (((new-locals code undos new-env) (process-bindings bindings env))
                   ((e0 t0)                         (expand-expr cx `(begin ,@body) new-env)))
       (unclaim-locals (cx.slots cx) undos)
-      (let ((type (code/type-name-spliceable cx t0)))
+      (let ((type (wast-type-name-spliceable cx t0)))
         (if (not (null? code))
             (if (and (pair? e0) (eq? (car e0) 'begin))
                 (values `(block ,@type ,@code ,@(cdr e0)) t0)
@@ -1829,7 +1830,7 @@ For detailed usage instructions see MANUAL.md.
          (env  (extend-env env (list (cons id loop))))
          (body (map car (expand-expressions cx body env))))
     (values `(block ,(loop.break loop)
-                    ,@(code/type-name-spliceable cx (loop.type loop))
+                    ,@(wast-type-name-spliceable cx (loop.type loop))
                     (loop ,(loop.continue loop)
                           ,@body
                           (br ,(loop.continue loop)))
@@ -1871,7 +1872,7 @@ For detailed usage instructions see MANUAL.md.
                   (fields  (class.fields cls))
                   (actuals (expand-expressions cx (cddr expr) env))
                   (actuals (check-and-widen-arguments cx env fields actuals expr)))
-             (values (code/new-class cx env cls actuals) type)))
+             (values (wast-new-class cx env cls actuals) type)))
           ((Vector-type? type)
            (check-list expr 4 "Bad arguments to 'new'" expr)
            (let*-values (((el tl) (expand-expr cx (caddr expr) env))
@@ -1887,7 +1888,7 @@ For detailed usage instructions see MANUAL.md.
   (let* ((tyexpr (cadr expr))
          (type   (parse-type cx env tyexpr)))
     (values
-     (cond ((class-type? type) `(ref.null ,(code/type-name cx type)))
+     (cond ((class-type? type) `(ref.null ,(wast-type-name cx type)))
            ((Vector-type? type) (render-vector-null cx env (type.vector-element type)))
            ((anyref-type? type) '(ref.null anyref))
            (else (fail "Not a valid reference type for 'null'" tyexpr)))
@@ -1940,7 +1941,7 @@ For detailed usage instructions see MANUAL.md.
                    ((String-type? t)
                     (values (render-upcast-string-to-anyref cx env e) target-type))
                    ((class-type? t)
-                    (values (code/upcast-class-to-anyref cx env e) target-type))
+                    (values (wast-upcast-class-to-anyref cx env e) target-type))
                    ((Vector-type? t)
                     (values (render-upcast-maybenull-vector-to-anyref cx env (type.vector-element t) e) target-type))
                    (else
@@ -1959,7 +1960,7 @@ For detailed usage instructions see MANUAL.md.
                         (cond ((class=? value-cls target-cls)
                                (values e t))
                               ((subclass? value-cls target-cls)
-                               (values (code/upcast-class-to-class cx env target-cls e)
+                               (values (wast-upcast-class-to-class cx env target-cls e)
                                        (class.type target-cls)))
                               ((subclass? target-cls value-cls)
                                (downcast-maybenull-class-to-class cx env target-cls e t))
@@ -1979,6 +1980,83 @@ For detailed usage instructions see MANUAL.md.
             (else
              (fail "Bad target type in 'is'" target-type expr))))))
 
+;; Stale documentation
+;;
+;; Current design:
+;;
+;; The class descriptor is a JS object that holds an ID (positive integer), a
+;; vtable (an Array), and a supertype table (an Array).  The descriptor is
+;; immutable and is stored in the environment object, as values in a hash that
+;; uses the class name as a key; the hash is stored in the 'desc' field of the
+;; environment object.
+;;
+;; Every object has a pointer field called _desc_ that points to the descriptor
+;; object for the class.  The JS-generated 'new' operation grabs the descriptor
+;; from the environment object every time a new object is created.
+;;
+;; The vtable for a class is a vector of nonnegative integers.  It is indexed by
+;; the virtual functions defined on the class - each virtual function has its
+;; own index from a global index space, and when it is invoked it uses its index
+;; to reference into the table to find another number, which is an index into
+;; the virtual function table in the module.  The vtable is sparse, but unused
+;; elements are filled with -1 (in slots where the virtual function in question
+;; is not defined on the type).  The virtual function table in the module is
+;; dense.
+;;
+;; The supertype table for a class is a vector of nonnegative integers.  It
+;; holds the class ids (which are positive integers) for all the classes that
+;; are supertypes of the class, including the id of the class itself.  To test
+;; whether a class of A is a subtype of B, where A is not known at all, we grab
+;; B's class ID and see if it appears in the list of A's supertypes.
+;;
+;;
+;; New design:
+;;
+;; We want:
+;; - the _desc_ field to be an integer field that can be stored by 'new' and
+;;   read directly
+;; - the 'desc' field in the environment object, and the hash it holds,
+;;   to go away
+;; - a faster subtype test
+;; - to use flat memory for the object descriptor
+;;
+;; We propose the following layout:
+;;
+;; - the _desc_ is a word address in flat memory
+;; - at that address is the class ID, as current, though not sure we need it
+;; - at greater addresses is the subtype test table, growing toward high addresses
+;; - at lower addresses is the vtable, growing toward low addresses.  It looks
+;;   like it currently does.  We don't need a length.
+;; - the first element of the subtype test table is its length
+;; - the length of the table corresponds to the depth of the class in its linear
+;;   inheritance chain (so, "Object"'s is length 1, and a subtype of Object has
+;;   length 2, etc)
+;; - the entry in slot i is the class ID of the ith class (so the only value
+;;   in the table of Object is Object; etc)
+;; - to test whether A is subtype of B, we must know B's depth, d(B)
+;; - we check whether A's table length is > d(B)
+;; - if so, we read element d(B) from A
+;; - if this is B, A is a subtype of B
+;;
+;; Initially we will keep the memory private, but we should expect to share
+;; memories eventually, and to allocate our data at a late-provided address,
+;; though a single block is OK until we have type import.
+;;
+;; Consider the set of classes Object, A <: Object, B <: A, C <: A, D <: C, E <: Object
+;;
+;; For Object, [Object]          d(Object) = 0
+;; For A,      [Object, A]       d(A) = 1
+;; For B,      [Object, A, B]    d(B) = 2
+;; For C,      [Object, A, C]    d(C) = 2
+;; For D,      [Object, A, C, D] d(D) = 3
+;; For E,      [Object, E]
+;;
+;; Is T <: A?  Let len(T) = 2
+;; Test 1: d(A) = 1 < len(T)
+;; Test 2: T.tbl[1] is id(C)   [so T is C or D, but only C fits because len(T)=2]
+;; So no.
+;;
+;;
 ;; Anyref unboxing:
 ;;
 ;; - anyref holds only pointers or null (ie it's a generic nullable pointer)
@@ -1989,6 +2067,46 @@ For detailed usage instructions see MANUAL.md.
 ;;   correct type
 ;; - for string there must then be a subsequent test for null, since strings are
 ;;   not nullable
+
+
+(define (label-classes cx env)
+  (for-each (lambda (cls)
+              (let* ((support (cx.support cx))
+                     (id      (support.class-id support)))
+                (support.class-id-set! support (+ id 1))
+                (class.label-set! cls id)))
+            (classes env)))
+
+(define (compute-class-descriptors cx env)
+
+  (define (class-ids cls)
+    (if (not cls)
+        '()
+        (cons (class.label cls) (class-ids (class.base cls)))))
+
+  (define (class-dispatch-map cls)
+    (let ((vs (class.virtuals cls)))
+      (if (null? vs)
+          '()
+          (let* ((largest (apply max (map car vs)))
+                 (vtbl    (make-vector (+ largest 1) -1)))
+            (for-each (lambda (entry)
+                        (vector-set! vtbl (car entry) (func.table-index (cadr entry))))
+                      vs)
+            (vector->list vtbl)))))
+
+  (for-each (lambda (cls)
+              (let* ((virtuals (class-dispatch-map cls))
+                     (bases    (reverse (class-ids cls)))
+                     (table    (append (reverse virtuals) (list (class.label cls) (length bases)) bases))
+                     (addr     (cx.memory cx)))
+                (cx.memory-set! cx (+ addr (* 4 (length table))))
+                (for-each (lambda (d)
+                            (cx.data-set! cx (cons d (cx.data cx))))
+                          table)
+                (let ((desc-addr (+ addr (* 4 (length virtuals)))))
+                  (indirection-set! (class.desc-addr cls) desc-addr))))
+            (classes env)))
 
 ;; `val` is a wasm expression and `valty` is its type object.
 
@@ -2002,7 +2120,7 @@ For detailed usage instructions see MANUAL.md.
               #f
               (%let% ((,desc (%object-desc% ,obj)))
                 (%and% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
-                       (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))
+                       (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.label cls))))))
      env)))
 
 ;; TODO: the render here could be a primitive?  %nonnull-anyref-unbox-object%
@@ -2024,7 +2142,7 @@ For detailed usage instructions see MANUAL.md.
                             #f
                             (%let% ((,desc (%object-desc% ,tmp)))
                                (%and% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
-                                      (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))))))))
+                                      (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.label cls))))))))
          env))))
 
 ;; `val` is a wasm expression and `valty` is its type object.
@@ -2041,7 +2159,7 @@ For detailed usage instructions see MANUAL.md.
                    (%wasm% ,(class.type cls) (get_local (%id% ,obj)))
                    (%let% ((,desc (%object-desc% ,obj)))
                       (%if% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
-                            (%if% (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))
+                            (%if% (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.label cls))
                                   (%wasm% ,(class.type cls) (get_local (%id% ,obj)))
                                   (%wasm% ,(class.type cls) (unreachable)))
                             (%wasm% ,(class.type cls) (unreachable))))))
@@ -2067,12 +2185,12 @@ For detailed usage instructions see MANUAL.md.
      `(%let% ((,obj (%wasm% ,valty ,val)))
          (%if% (%null?% ,obj)
                ,ifnull
-               (%let% ((,nobj (%wasm% ,ty (struct.narrow ,(code/type-name cx valty) ,(code/type-name cx ty) (get_local (%id% ,obj))))))
+               (%let% ((,nobj (%wasm% ,ty (struct.narrow ,(wast-type-name cx valty) ,(wast-type-name cx ty) (get_local (%id% ,obj))))))
                   (%if% (%null?% ,nobj)
                         ,fail
                         (%let% ((,desc (%object-desc% ,nobj)))
                            (%if% (%>u% (%object-desc-length% ,desc) ,(class.depth cls))
-                                 (%if% (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.host cls))
+                                 (%if% (%=% (%object-desc-ref% ,(class.depth cls) ,desc) ,(class.label cls))
                                        ,(succeed nobj)
                                        ,fail)
                                  ,fail))))))
@@ -2232,7 +2350,7 @@ For detailed usage instructions see MANUAL.md.
       (if (else-clause? last)
           (wrap-clauses (cdr clauses)
                         (cadr last)
-                        (code/type-name-spliceable cx t))
+                        (wast-type-name-spliceable cx t))
           (wrap-clauses (cdr clauses)
                         `(if ,(car last) ,(cadr last))
                         '()))))
@@ -2341,7 +2459,7 @@ For detailed usage instructions see MANUAL.md.
           (values default default-type))
         (let* ((_             (check-case-types cases default-type))
                (ty            (caddr (car cases)))
-               (bty           (code/type-name-spliceable cx ty))
+               (bty           (wast-type-name-spliceable cx ty))
                (cases         (map (lambda (c) (cons (new-name cx "case") c)) cases))
                (default-label (new-name cx "default"))
                (outer-label   (new-name cx "outer"))
@@ -2556,7 +2674,7 @@ For detailed usage instructions see MANUAL.md.
   (check-list expr 2 "Bad accessor" expr)
   (let-values (((base-expr cls field-name field-type)
                 (process-accessor-expression cx expr env)))
-    (values (code/maybenull-field-access cx env cls field-name base-expr)
+    (values (wast-maybenull-field-access cx env cls field-name base-expr)
             field-type)))
 
 ;; Returns rendered-base-expr class field-name field-type
@@ -2784,7 +2902,7 @@ For detailed usage instructions see MANUAL.md.
 (define (expand-object-desc cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
     (check-class-type t0 "'%object-desc%'" expr)
-    (values (code/get-descriptor-addr cx env e0 t0) *i32-type*)))
+    (values (wast-get-descriptor-addr cx env e0 t0) *i32-type*)))
 
 (define (expand-object-desc-id cx expr env)
   (let-values (((e0 t0) (expand-expr cx (cadr expr) env)))
@@ -2821,9 +2939,9 @@ For detailed usage instructions see MANUAL.md.
     (check-i32-type t0 "'%vector-desc-id%'" expr)
     (values e0 *i32-type*)))
 
-;; Miscellaneous wasm support: functions named code/whatever returns literal wast code.
+;; Miscellaneous wasm support: functions named wast-whatever return literal wast code.
 
-(define (code/number n type)
+(define (wast-number n type)
   (let ((v (cond ((= n +inf.0)  (string->symbol "+infinity"))
                  ((= n -inf.0)  (string->symbol "-infinity"))
                  ((not (= n n)) (string->symbol "+nan"))
@@ -2834,50 +2952,50 @@ For detailed usage instructions see MANUAL.md.
           ((f64-type? type) `(f64.const ,v))
           (else (canthappen)))))
 
-(define (code/class-name cls)
+(define (wast-class-name cls)
   (splice "$cls_" (class.name cls)))
 
-(define (code/type-name cx t)
+(define (wast-type-name cx t)
   (if (reference-type? t)
       (if (cx.wizard? cx)
           (cond ((class-type? t)
-                 `(ref ,(code/class-name (type.class t))))
+                 `(ref ,(wast-class-name (type.class t))))
                 (else
                  'anyref))
           'anyref)
       (type.name t)))
 
-(define (code/type-name-spliceable cx t)
+(define (wast-type-name-spliceable cx t)
   (if (void-type? t)
       '()
-      (list (code/type-name cx t))))
+      (list (wast-type-name cx t))))
 
-(define (code/new-class cx env cls actuals)
+(define (wast-new-class cx env cls actuals)
   (if (cx.wizard? cx)
-      `(struct.new ,(code/class-name cls) (i32.const ,(class.desc-addr cls)) ,@(map car actuals))
+      `(struct.new ,(wast-class-name cls) (i32.const ,(class.desc-addr cls)) ,@(map car actuals))
       (render-new-class cx env cls actuals)))
 
-(define (code/get-descriptor-addr cx env p t)
+(define (wast-get-descriptor-addr cx env p t)
   (if (cx.wizard? cx)
-      `(struct.get ,(code/class-name (type.class t)) 0 ,p)
+      `(struct.get ,(wast-class-name (type.class t)) 0 ,p)
       (render-get-descriptor-addr cx env p)))
 
-(define (code/maybenull-field-access cx env cls field-name base-expr)
+(define (wast-maybenull-field-access cx env cls field-name base-expr)
   (if (cx.wizard? cx)
-      `(struct.get ,(code/class-name cls) ,(+ 1 (field-index cls field-name)) ,base-expr)
+      `(struct.get ,(wast-class-name cls) ,(+ 1 (field-index cls field-name)) ,base-expr)
       (render-maybenull-field-access cx env cls field-name base-expr)))
 
-(define (code/maybenull-field-update cx env cls field-name base-expr val)
+(define (wast-maybenull-field-update cx env cls field-name base-expr val)
   (if (cx.wizard? cx)
-      `(struct.set ,(code/class-name cls) ,(+ 1 (field-index cls field-name)) ,base-expr ,val)
+      `(struct.set ,(wast-class-name cls) ,(+ 1 (field-index cls field-name)) ,base-expr ,val)
       (render-maybenull-field-update cx env cls field-name base-expr val)))
 
-(define (code/upcast-class-to-class cx env target-cls value)
+(define (wast-upcast-class-to-class cx env target-cls value)
   (if (cx.wizard? cx)
       value
       (render-upcast-class-to-class cx env target-cls value)))
 
-(define (code/upcast-class-to-anyref cx env value)
+(define (wast-upcast-class-to-anyref cx env value)
   (if (cx.wizard? cx)
       value
       (render-upcast-class-to-anyref cx env value)))
@@ -2998,6 +3116,11 @@ For detailed usage instructions see MANUAL.md.
 ;; even for per-class functions; it's the initial lookup that would trigger the
 ;; generation.
 
+;; Note, "instanceof" does not worked on TypedObject instances.  So instead of
+;; "x instanceof T" where T is some TO type, we use "x.hasOwnProperty('_desc_')"
+;; to test for Object/Vector, and then wasm code must extract the type code and
+;; check that.
+
 (define-record-type type/js-support
   (%make-js-support% type lib desc strings class-id)
   js-support?
@@ -3032,7 +3155,7 @@ For detailed usage instructions see MANUAL.md.
 
 (define (synthesize-func-import cx env name formal-types result)
   (let ((rendered-params (map (lambda (f)
-                                `(param ,(code/type-name cx f)))
+                                `(param ,(wast-type-name cx f)))
                               formal-types))
         (formals         (map (lambda (k f)
                                 (list (splice "p" k) f))
@@ -3059,108 +3182,7 @@ For detailed usage instructions see MANUAL.md.
                    ((f64)    "float64")
                    (else (canthappen)))))
 
-;; Classes
-
-(define (label-classes cx env)
-  (for-each (lambda (cls)
-              (let* ((support (cx.support cx))
-                     (id      (support.class-id support)))
-                (support.class-id-set! support (+ id 1))
-                (class.host-set! cls id)))
-            (classes env)))
-
 ;; Class descriptors, vtables, and hierarchies
-
-;; Current design:
-;;
-;; The class descriptor is a JS object that holds an ID (positive integer), a
-;; vtable (an Array), and a supertype table (an Array).  The descriptor is
-;; immutable and is stored in the environment object, as values in a hash that
-;; uses the class name as a key; the hash is stored in the 'desc' field of the
-;; environment object.
-;;
-;; Every object has a pointer field called _desc_ that points to the descriptor
-;; object for the class.  The JS-generated 'new' operation grabs the descriptor
-;; from the environment object every time a new object is created.
-;;
-;; The vtable for a class is a vector of nonnegative integers.  It is indexed by
-;; the virtual functions defined on the class - each virtual function has its
-;; own index from a global index space, and when it is invoked it uses its index
-;; to reference into the table to find another number, which is an index into
-;; the virtual function table in the module.  The vtable is sparse, but unused
-;; elements are filled with -1 (in slots where the virtual function in question
-;; is not defined on the type).  The virtual function table in the module is
-;; dense.
-;;
-;; The supertype table for a class is a vector of nonnegative integers.  It
-;; holds the class ids (which are positive integers) for all the classes that
-;; are supertypes of the class, including the id of the class itself.  To test
-;; whether a class of A is a subtype of B, where A is not known at all, we grab
-;; B's class ID and see if it appears in the list of A's supertypes.
-;;
-;;
-;; New design:
-;;
-;; We want:
-;; - the _desc_ field to be an integer field that can be stored by 'new' and
-;;   read directly
-;; - the 'desc' field in the environment object, and the hash it holds,
-;;   to go away
-;; - a faster subtype test
-;; - to use flat memory for the object descriptor
-;;
-;; We propose the following layout:
-;;
-;; - the _desc_ is a word address in flat memory
-;; - at that address is the class ID, as current, though not sure we need it
-;; - at greater addresses is the subtype test table, growing toward high addresses
-;; - at lower addresses is the vtable, growing toward low addresses.  It looks
-;;   like it currently does.  We don't need a length.
-;; - the first element of the subtype test table is its length
-;; - the length of the table corresponds to the depth of the class in its linear
-;;   inheritance chain (so, "Object"'s is length 1, and a subtype of Object has
-;;   length 2, etc)
-;; - the entry in slot i is the class ID of the ith class (so the only value
-;;   in the table of Object is Object; etc)
-;; - to test whether A is subtype of B, we must know B's depth, d(B)
-;; - we check whether A's table length is > d(B)
-;; - if so, we read element d(B) from A
-;; - if this is B, A is a subtype of B
-;;
-;; Initially we will keep the memory private, but we should expect to share
-;; memories eventually, and to allocate our data at a late-provided address,
-;; though a single block is OK until we have type import.
-;;
-;; Consider the set of classes Object, A <: Object, B <: A, C <: A, D <: C, E <: Object
-;;
-;; For Object, [Object]          d(Object) = 0
-;; For A,      [Object, A]       d(A) = 1
-;; For B,      [Object, A, B]    d(B) = 2
-;; For C,      [Object, A, C]    d(C) = 2
-;; For D,      [Object, A, C, D] d(D) = 3
-;; For E,      [Object, E]
-;;
-;; Is T <: A?  Let len(T) = 2
-;; Test 1: d(A) = 1 < len(T)
-;; Test 2: T.tbl[1] is id(C)   [so T is C or D, but only C fits because len(T)=2]
-;; So no.
-
-
-;; Note, "instanceof" does not worked on TypedObject instances.  So instead of
-;; "x instanceof T" where T is some TO type, we use "x.hasOwnProperty('_desc_')"
-;; to test for Object/Vector, and then wasm code must extract the type code and
-;; check that.
-
-
-;; There are some additional complications.
-;;
-;; Currently we distinguish Object and its subtypes from other junk on the JS
-;; side when we downcast from anyref.  We'll basically need to split things
-;; here; downcast from anyref to Object (or test, ditto); then do things in
-;; wasm.  And if the downcast fails on the wasm side we must call out to JS
-;; again to trap.  I guess unreachable works.
-;;
-;; Search for class-downcast-test.
 
 (define (synthesize-class-descriptors cx env)
   (if (not (cx.wizard? cx))
@@ -3174,37 +3196,11 @@ For detailed usage instructions see MANUAL.md.
                 (classes env))))
 
 (define (emit-class-descriptors cx env)
-
-  (define (class-ids cls)
-    (if (not cls)
-        '()
-        (cons (class.host cls) (class-ids (class.base cls)))))
-
-  (define (class-dispatch-map cls)
-    (let ((vs (class.virtuals cls)))
-      (if (null? vs)
-          '()
-          (let* ((largest (apply max (map car vs)))
-                 (vtbl    (make-vector (+ largest 1) -1)))
-            (for-each (lambda (entry)
-                        (vector-set! vtbl (car entry) (func.table-index (cadr entry))))
-                      vs)
-            (vector->list vtbl)))))
-
-  (for-each (lambda (cls)
-              (let* ((virtuals (class-dispatch-map cls))
-                     (bases    (reverse (class-ids cls)))
-                     (table    (append (reverse virtuals) (list (class.host cls) (length bases)) bases))
-                     (addr     (cx.memory cx)))
-                (cx.memory-set! cx (+ addr (* 4 (length table))))
-                (for-each (lambda (d)
-                            (cx.data-set! cx (cons d (cx.data cx))))
-                          table)
-                (let ((desc-addr (+ addr (* 4 (length virtuals)))))
-                  (indirection-set! (class.desc-addr cls) desc-addr)
-                  (if (not (cx.wizard? cx))
-                      (format-desc cx (class.name cls) "~a" desc-addr)))))
-            (classes env)))
+  (if (not (cx.wizard? cx))
+      (for-each (lambda (cls)
+                  (let ((desc-addr (indirection-get (class.desc-addr cls))))
+                    (format-desc cx (class.name cls) "~a" desc-addr)))
+                (classes env))))
 
 ;; Once we have field access in wasm the the 'get descriptor' operation will be
 ;; subtype-polymorphic, it takes an Object that has a _desc_ field and returns
@@ -3370,7 +3366,7 @@ function (x1,x2,x3,x4,x5,x6,x7,x8,x9,x10) {
     (let loop ((n (length args)) (args args) (code '()))
       (if (<= n 10)
           (let ((args (append args (make-list (- 10 n) '(i32.const 0)))))
-            `(block ,(code/type-name cx *String-type*)
+            `(block ,(wast-type-name cx *String-type*)
                     ,@(reverse code)
                     (call ,(func.id new_string) (i32.const ,n) ,@args)))
           (loop (- n 10)
