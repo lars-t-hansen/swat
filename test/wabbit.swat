@@ -9,38 +9,42 @@
     (left  Node)
     (right Node))
 
- (defun+ (wabbit (n i32) -> Node)
-   (if (= n 0)
-       (null Node)
-       (let ((k next))
-	 (inc! next)
-	 (new Node k (wabbit (- n 1)) (wabbit (- n 1))))))
+  (defun+ (val (n Node) -> i32) (*val n))
+  (defun+ (left (n Node) -> Node) (*left n))
+  (defun+ (right (n Node) -> Node) (*right n))
+  
+  (defun+ (wabbit (n i32) -> Node)
+    (if (= n 0)
+	(null Node)
+	(let ((k next))
+	  (inc! next)
+	  (new Node k (wabbit (- n 1)) (wabbit (- n 1))))))
 
- (defun+ (sum (t Node) -> i32)
-   (if (null? t)
-       0
-       (+ (*val t) (+ (sum (*left t)) (sum (*right t))))))
+  (defun+ (sum (t Node) -> i32)
+    (if (null? t)
+	0
+	(+ (*val t) (+ (sum (*left t)) (sum (*right t))))))
 
- (defun+ (swap (t Node))
-   (if (not (null? t))
-       (let ((tmp (*left t)))
-	 (set! (*val t) (- 0 (*val t)))
-	 (set! (*left t) (*right t))
-	 (set! (*right t) tmp)
-	 (swap (*left t))
-	 (swap (*right t))))))
+  (defun+ (swap (t Node))
+    (if (not (null? t))
+	(let ((tmp (*left t)))
+	  (set! (*val t) (- 0 (*val t)))
+	  (set! (*left t) (*right t))
+	  (set! (*right t) tmp)
+	  (swap (*left t))
+	  (swap (*right t))))))
 
 (js "
 Wabbit.compile().then(function(module) {
   var i = new WebAssembly.Instance(module, {lib:Wabbit.lib}).exports;
   var t = i.wabbit(5);
   assertEq(i.sum(t), i.next*(i.next-1)/2);
-  var a = t.left.val;
-  var b = t.right.val;
+  var a = i.val(i.left(t));
+  var b = i.val(i.right(t));
   i.swap(t);
-  assertEq(t.val, -1);
-  assertEq(t.left.val, -b);
-  assertEq(t.right.val, -a);
+  assertEq(i.val(t), -1);
+  assertEq(i.val(i.left(t)), -b);
+  assertEq(i.val(i.right(t)), -a);
 },
 function(err) { throw err }).catch(function (e) {
     print('FAILURE: ' + e);

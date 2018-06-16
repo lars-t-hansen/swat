@@ -1214,32 +1214,30 @@ For detailed usage instructions see MANUAL.md.
 ;; Local slots storage
 
 (define-record-type type/slots
-  (%make-slots% tracker i32s i64s f32s f64s anyrefs)
+  (%make-slots% tracker accessors)
   slots?
-  (tracker slots.tracker)
-  (i32s    slots.i32s    slots.i32s-set!)
-  (i64s    slots.i64s    slots.i64s-set!)
-  (f32s    slots.f32s    slots.f32s-set!)
-  (f64s    slots.f64s    slots.f64s-set!)
-  (anyrefs slots.anyrefs slots.anyrefs-set!))
+  (tracker   slots.tracker)
+  (accessors slots.accessors slots.accessors-set!))
 
 (define (make-slots)
-  (%make-slots% (make-tracker) '() '() '() '() '()))
+  (%make-slots% (make-tracker) '()))
 
-;; FIXME: Oof, totally bad.
-;;
-;; Basically type/slots should be an assoc list (type . slots), where slots is
-;; itself an object (maybe just a cons) that holds the list of free slots.
-;; Perhaps it's not even that - it's just a getter/setter pair with a private
-;; variable between them.
+(define (make-slot-accessors)
+  (let ((slots '()))
+    (cons (lambda (_) slots)
+          (lambda (_ x) (set! slots x)))))
 
-(define (slot-accessors-for-type t)
-  (cond ((i32-type? t) (values slots.i32s slots.i32s-set!))
-        ((i64-type? t) (values slots.i64s slots.i64s-set!))
-        ((f32-type? t) (values slots.f32s slots.f32s-set!))
-        ((f64-type? t) (values slots.f64s slots.f64s-set!))
-        ((reference-type? t) (values slots.anyrefs slots.anyrefs-set!))
-        (else (canthappen))))
+(define (slot-accessors-for-type slots t)
+  (let loop ((accessors (slots.accessors slots)))
+    (cond ((null? accessors)
+           (let ((g+s (make-slot-accessors)))
+             (slots.accessors-set! slots (cons (cons t g+s) (slots.accessors slots)))
+             (values (car g+s) (cdr g+s))))
+          ((type=? (caar accessors) t)
+           (let ((g+s (cdar accessors)))
+             (values (car g+s) (cdr g+s))))
+          (else
+           (loop (cdr accessors))))))
 
 (define-record-type type/slot-undo
   (make-undo getter setter slot)
@@ -1281,7 +1279,7 @@ For detailed usage instructions see MANUAL.md.
        (reverse (tracker.defined (slots.tracker slots)))))
 
 (define (do-claim-slot slots t record?)
-  (let-values (((getter setter) (slot-accessors-for-type t)))
+  (let-values (((getter setter) (slot-accessors-for-type slots t)))
     (let* ((spare (getter slots))
            (slot  (if (not (null? spare))
                       (let ((number (car spare)))
@@ -1354,11 +1352,12 @@ For detailed usage instructions see MANUAL.md.
 
 (define (type=? a b)
   (or (eq? a b)
-      (case (type.name a)
-        ((ref)    (type=? (type.ref-base a) (type.ref-base b)))
-        ((vector) (type=? (type.vector-element a) (type.vector-element b)))
-        ((class)  (class=? (type.class a) (type.class b)))
-        (else     #f))))
+      (and (eq? (type.name a) (type.name b))
+           (case (type.name a)
+             ((ref)    (type=? (type.ref-base a) (type.ref-base b)))
+             ((vector) (type=? (type.vector-element a) (type.vector-element b)))
+             ((class)  (class=? (type.class a) (type.class b)))
+             (else     #f)))))
 
 (define (void-type? x) (eq? x *void-type*))
 

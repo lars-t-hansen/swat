@@ -68,14 +68,13 @@ Classtest.compile().then(function(module) {
   assertEq(i.get(b), 37);
   assertEq(i.get2(b), 49);
   assertEq(i.get3(b), 49);
-  b.value = 58;
+  i.set(b, 58);
   assertEq(i.get(b), 58);
   assertEq(i.check_null(b), 0);
   assertEq(i.check_null(null), 1);
   assertEq(i.make_null(), null);
   i.set(b, 42);
   assertEq(i.get(b), 42);
-  assertEq(b.value, 42);
   assertEq(i.test(b), 1);
   var ipso = i.make_Ipso(5);
   assertEq(i.test(ipso), 0);
