@@ -5,8 +5,8 @@
 * Type checks at the call-in boundary + defined semantics for visible unexported types
 * Virtual function cleanup
   * Missing handling of the "default" case
-  * Idiosyncratic "closed" syntax, defvirtual + defmethod would be less weird and "open" and forward-looking
-  * Probable bug, we need downcast at the virtual dispatch boundary
+  * Idiosyncratic "closed" syntax, defvirtual + defmethod would be less weird and "open" and
+    forward-looking and also remove the trampolines we need now for the downcast
 * Exportable classes
   * They should show up as factory functions M.make.Cls(), and with access to fields thru the std TypedObject mechanism
 * Some way of accessing host objects, so that we don't have to go to JS for DOM access.
@@ -41,10 +41,6 @@
 
 * An "include" feature (both top-level, which aids JS, and top-level in the module, which aids swat)
   with a reasonable include path search algorithm
-* speed up subtype test in JS code, maybe avoid going out of line [flag -O]
-* speed up vcalls, maybe avoid going out of line [flag -O]
-* speed up upcasts, don't emit code [flag -O]
-* ditto downcasts, probably - for now
 * note, right now JS performs a null check on obj reference, does this move into wasm somehow?
 * can we create a general runtime facility?
 * more demos

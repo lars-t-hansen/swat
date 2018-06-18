@@ -1,4 +1,4 @@
-Bugfix:
+Bugfixes/changes in SpiderMonkey:
 
 * Fields should always be called _0, _1, etc, even in non-wizard mode.  Right
   now they are _1, _2 in wizard mode and their original names in non-wizard mode.
@@ -19,10 +19,3 @@ For flat descriptors:
 
 * Fix strings:
   - ???
-
-* Fix documentation
-
-Week plan:
-
-* Get this out of the way asap, it's dragging on for too long
-* Demo swat with gc object feature, ideally even in Firefox

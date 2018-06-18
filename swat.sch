@@ -1986,94 +1986,38 @@ For detailed usage instructions see MANUAL.md.
             (else
              (fail "Bad target type in 'is'" target-type expr))))))
 
-;; Stale documentation
+;; Dynamic type testing and dynamic downcasts.
 ;;
-;; Current design:
+;; A private field of each object accessed by (%object-desc% obj) holds an
+;; address A in flat memory of the object's descriptor.  The descriptor is laid
+;; out in both directions from the address and looks like this:
 ;;
-;; The class descriptor is a JS object that holds an ID (positive integer), a
-;; vtable (an Array), and a supertype table (an Array).  The descriptor is
-;; immutable and is stored in the environment object, as values in a hash that
-;; uses the class name as a key; the hash is stored in the 'desc' field of the
-;; environment object.
+;;          -m: virtual function table index
+;;              ...
+;;          -1: virtual function table index
+;;   A --->  0: Class ID
+;;           1: Length
+;;           2: Class ID of Supetype 0
+;;              ...
+;;           k: Class ID of this type [same as slot #0]
 ;;
-;; Every object has a pointer field called _desc_ that points to the descriptor
-;; object for the class.  The JS-generated 'new' operation grabs the descriptor
-;; from the environment object every time a new object is created.
+;; When a class instance is allocated, the address A is placed in this first,
+;; private field.
 ;;
-;; The vtable for a class is a vector of nonnegative integers.  It is indexed by
-;; the virtual functions defined on the class - each virtual function has its
-;; own index from a global index space, and when it is invoked it uses its index
-;; to reference into the table to find another number, which is an index into
-;; the virtual function table in the module.  The vtable is sparse, but unused
-;; elements are filled with -1 (in slots where the virtual function in question
-;; is not defined on the type).  The virtual function table in the module is
-;; dense.
+;; At the moment, each virtual function has its own index from a global index
+;; space, and when it is invoked it uses its index to reference into the virtual
+;; function table of the object to the index into the virtual function table in
+;; the module.  The vtable is sparse, but unused elements are filled with -1 (in
+;; slots where the virtual function in question is not defined on the type).
+;; The virtual function table in the module is dense.
 ;;
 ;; The supertype table for a class is a vector of nonnegative integers.  It
 ;; holds the class ids (which are positive integers) for all the classes that
-;; are supertypes of the class, including the id of the class itself.  To test
+;; are supertypes of the class, including the ID of the class itself.  To test
 ;; whether a class of A is a subtype of B, where A is not known at all, we grab
-;; B's class ID and see if it appears in the list of A's supertypes.
-;;
-;;
-;; New design:
-;;
-;; We want:
-;; - the _desc_ field to be an integer field that can be stored by 'new' and
-;;   read directly
-;; - the 'desc' field in the environment object, and the hash it holds,
-;;   to go away
-;; - a faster subtype test
-;; - to use flat memory for the object descriptor
-;;
-;; We propose the following layout:
-;;
-;; - the _desc_ is a word address in flat memory
-;; - at that address is the class ID, as current, though not sure we need it
-;; - at greater addresses is the subtype test table, growing toward high addresses
-;; - at lower addresses is the vtable, growing toward low addresses.  It looks
-;;   like it currently does.  We don't need a length.
-;; - the first element of the subtype test table is its length
-;; - the length of the table corresponds to the depth of the class in its linear
-;;   inheritance chain (so, "Object"'s is length 1, and a subtype of Object has
-;;   length 2, etc)
-;; - the entry in slot i is the class ID of the ith class (so the only value
-;;   in the table of Object is Object; etc)
-;; - to test whether A is subtype of B, we must know B's depth, d(B)
-;; - we check whether A's table length is > d(B)
-;; - if so, we read element d(B) from A
-;; - if this is B, A is a subtype of B
-;;
-;; Initially we will keep the memory private, but we should expect to share
-;; memories eventually, and to allocate our data at a late-provided address,
-;; though a single block is OK until we have type import.
-;;
-;; Consider the set of classes Object, A <: Object, B <: A, C <: A, D <: C, E <: Object
-;;
-;; For Object, [Object]          d(Object) = 0
-;; For A,      [Object, A]       d(A) = 1
-;; For B,      [Object, A, B]    d(B) = 2
-;; For C,      [Object, A, C]    d(C) = 2
-;; For D,      [Object, A, C, D] d(D) = 3
-;; For E,      [Object, E]
-;;
-;; Is T <: A?  Let len(T) = 2
-;; Test 1: d(A) = 1 < len(T)
-;; Test 2: T.tbl[1] is id(C)   [so T is C or D, but only C fits because len(T)=2]
-;; So no.
-;;
-;;
-;; Anyref unboxing:
-;;
-;; - anyref holds only pointers or null (ie it's a generic nullable pointer)
-;; - there are primitive downcasts from anyref to Wasm object, string, or generic array
-;; - those downcasts all allow for null values - null is propagated [clean this up]
-;; - nonnull values of the wrong types cause a trap
-;; - for array and object there must then be a subsequent test for the
-;;   correct type
-;; - for string there must then be a subsequent test for null, since strings are
-;;   not nullable
-
+;; B's class ID and see if it appears in the list of A's supertypes.  This is a
+;; constant time operation: a length check and a lookup.  We simply test whether
+;; a known slot has a known value.
 
 (define (label-classes cx env)
   (for-each (lambda (cls)
@@ -2113,6 +2057,25 @@ For detailed usage instructions see MANUAL.md.
                 (let ((desc-addr (+ addr (* 4 (length virtuals)))))
                   (indirection-set! (class.desc-addr cls) desc-addr))))
             (classes env)))
+
+;; `obj` is a wasm expression, `objty` its type object, and `vid` is the virtual index.
+
+(define (resolve-nonnull-virtual cx env obj objty vid)
+  (expand-expr
+   cx
+   `(%object-desc-virtual% ,vid (%object-desc% (%wasm% ,objty ,obj)))
+   env))
+
+;; Anyref unboxing:
+;;
+;; - anyref holds only pointers or null (ie it's a generic nullable pointer)
+;; - there are primitive downcasts from anyref to Wasm object, string, or generic array
+;; - those downcasts all allow for null values - null is propagated [clean this up]
+;; - nonnull values of the wrong types cause a trap
+;; - for array and object there must then be a subsequent test for the
+;;   correct type
+;; - for string there must then be a subsequent test for null, since strings are
+;;   not nullable
 
 ;; `val` is a wasm expression and `valty` is its type object.
 
@@ -2250,14 +2213,6 @@ For detailed usage instructions see MANUAL.md.
                                (%wasm% ,target-type (get_local (%id% ,obj)))
                                (%wasm% ,target-type (unreachable))))))))
      env)))
-
-;; `obj` is a wasm expression, `objty` its type object, and `vid` is the virtual index.
-
-(define (resolve-nonnull-virtual cx env obj objty vid)
-  (expand-expr
-   cx
-   `(%object-desc-virtual% ,vid (%object-desc% (%wasm% ,objty ,obj)))
-   env))
 
 ;; Inline wasm is not yet exposed to user code because it can be used to break
 ;; generated code.  For example, the %id% form can be used to compute the slot
