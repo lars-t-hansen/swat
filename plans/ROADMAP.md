@@ -95,9 +95,22 @@ There might be more operators but a predicate is a good start.
 * Accessors *0 *1 etc, as for fields
 * Destructuring tuples with let-values and let*-values
 
+## Sequences
+
+* (seq T a b ...) creates a sequence from a b ...:
+   If T = (List U) then a list of U
+   If T = (Vector U) then a vector of U
+   If T = String then a String, though no real reason to do this
+
 ## Boxes
 
 * Sum type containers, speculative
+* (box v) -> Box
+* (unbox e ((x i32) ...) ((y f32) ...) (else ...))
+* (box-seq (List Box) e0 ...) boxes everything, this is == (list e0 ...) in Scheme
+* autoboxing should be a thing but is tricky to get right, consider passing an i32 to
+  something taking Box, this is easy, we box.  But then consider passing a Box value
+  to something taking Box.  Now we really do not want to box.  But does this hold up?
 
 ## Symbols
 

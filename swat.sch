@@ -907,18 +907,6 @@ For detailed usage instructions see MANUAL.md.
 
 ;; See above for make-virtual and virtual? and additional accessors
 
-;; FIXME: For virtuals there's also a downcast of the first argument to the
-;; class that is the receiver.  This cast needs to be inserted into the method.
-;; Note that with our current system that target class need not be the exact
-;; class of the receiver, because the signature in the dispatch does not have to
-;; match the signature in the implementation.  If we had a defvirtual/defmethod
-;; split, or if we required the type match when creating the virtual, then that
-;; would be different.
-;;
-;; The sad thing is that the downcast will never fail, because computing the
-;; dispatch ensures that it will not.  But in the eventual wasm design we will
-;; have this cost unless we formalize virtual dispatch somehow.
-
 (define (expand-virtual-phase1 cx env f)
   (expand-func-or-virtual-phase1
    cx env f "virtual"
@@ -997,9 +985,18 @@ For detailed usage instructions see MANUAL.md.
 
     ;; Assign table IDs to the functions or trampolines.
 
-    ;; For typed mode with current virtuals we need to inject trampolines that
-    ;; perform the downcasts along the call path when those casts are needed.
-    ;; Also see FIXME above.
+    ;; For virtuals there's a downcast along the call path of the reeiver
+    ;; argument, from the discriminator type of the virtual to the discriminator
+    ;; type of the method.  The downcast will never fail, because computing the
+    ;; dispatch ensures that it will not, but the wasm type system requires it.
+    ;;
+    ;; With swat's current virtual function design the method is just a normal
+    ;; function and the discriminator type of the method need not be the exact
+    ;; class that is used in dispatch; the former can be a supertype of the
+    ;; latter.  So we end up needing to insert an entire trampoline along the
+    ;; call path to do the proper downcast during virtual dispatch.  If we had a
+    ;; defvirtual/defmethod split then we could just insert the cast in the
+    ;; method.
 
     (for-each (lambda (disc)
                 (let ((disc-cls  (car disc))
