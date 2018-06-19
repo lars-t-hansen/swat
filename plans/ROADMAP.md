@@ -1,7 +1,49 @@
 # swat v1 
 
+## Stress points
+
+* Downcasts at virtual invocation - ideally we'd avoid it entirely
+* Downcast bytecode size in general - more diverse instructions would help
+* Our descriptor objects are in flat memory but this is certainly not ideal;
+  if an object escapes from one wasm instance and flows into another, the
+  type info will be utterly bizarre and very strange things can happen
+
+Let's move away from flat memory if we can; we'll need ref globals before we
+can implement this, and there needs to be some sort of init to create the
+descriptors:
+
+(type $Obj_hdr (struct
+                 (field $_cls_id  i32)
+                 (field $_cls_len i32)
+		 (field $_Obj_cls_id i32)))
+
+(type $A_hdr (struct
+                 (field $_cls_id  i32)
+                 (field $_cls_len i32)
+		 (field $_Obj_cls_id i32)
+		 (field $_A_cls_id i32)
+		 (field $_A_virt_f i32)))
+
+
+Virtual access is still by constant known field number.  But subclass testing
+is a little tricky.
+
+Actually this does not work at all with constant field names, I think?
+We can handle the supertype table but not the virtual table, because
+the length of the supertype table in a dispatch is not known (this is
+the point of virtual dispatch).
+
+We could do this if we had arrays though.
+
+So hold off on this until we have subtype support in the engine, and then we can
+use this exclusively for the vtable, or maybe for rtti + vtable.
+
+
 ## Missing language features and implementation bugs
 
+* Wizard mode
+  * Pointer stores
+  * Pointer globals
 * Type checks at the call-in boundary + defined semantics for visible unexported types
 * Virtual function cleanup
   * Missing handling of the "default" case

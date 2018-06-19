@@ -2614,10 +2614,6 @@ For detailed usage instructions see MANUAL.md.
         (list 'f64->bits *f64-type* *i64-type* 'i64.reinterpret/f64)
         (list 'bits->f64 *i64-type* *f64-type* 'f64.reinterpret/i64)))
 
-;; For this to work, every class defn must introduce a number of imports,
-;; corresponding to the operations.  These must be processed early enough
-;; for things to "work out".
-
 (define (expand-accessor cx expr env)
   (check-list expr 2 "Bad accessor" expr)
   (let-values (((base-expr cls field-name field-type)
