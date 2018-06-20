@@ -93,18 +93,55 @@ We define an imported opaque type with a predicate.  We use "defhost" rather
 than "defclass" to make the distinction that the representation may be something
 other than a class; it is an object, maybe with identity.
 
-The predicates are always (anyref) -> i32.  They are just functions; they don't
-have to be imported.
+The predicates are always (anyref) -> i32.  They are just functions; they can be
+defined locally or be imported.
 
 (defhost- DOMNode (predicate domnode?))
 
 (defhost- DOMHTMLNode (extends DOMNode)
-  (predicate domhtmmlnode?)
+  (predicate domhtmlnode?)
   (upcast #t))
 
 (defun- (domnode (n anyref) -> i32))
 (defun- (domhtmlnode (n anyref) -> i32))
 
+OK, so a feature set:
+
+* (include fn) both at top level and at module level
+* The less general defhost- as shown above, with special syntax for sends
+* Maybe use send syntax even for get/set
+* Probably support defhost- outside the module only?
+* When we need it we can support various up/downcast solutions
+
+For snake, this will be:
+
+  (defhost- DOMNode
+    (method (setText (text String))))
+
+  (defhost- DOMEvent)
+
+  (defhost- DOMKeyboardEvent (extends DOMEvent)
+    (downcast-from DOMEvent keyboard-event?)
+    (property charCode i32))
+
+  (defclass Tile
+    (element DOMNode))
+
+  (defun (renderEmpty (self Tile))
+    (=> (*element self) setText " "))
+  
+  (defun (onkeypress (ev DOMKeyboardEvent))
+    (case (=> ev get charCode)
+      ...))
+
+  (defun (newTile (doc DOMDocument) -> DOMNode)
+    (=> row appendChild (=> doc createElement "span")))
+
+Seems unlikely this will work without type relationships (up/down) whether
+implicit or explicit.
+
+This will break down for certain things like BufferSource, assuming we can even
+represent those.
 
 # Miscellaneous very unstructured notes on possible evolution
 
