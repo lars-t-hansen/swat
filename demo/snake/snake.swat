@@ -22,6 +22,95 @@
 
 (defmodule Snake
 
+  ;; Imported traits can be applied to reference types.  Objects of trait type
+  ;; are represented as anyref on call-in/call-out.
+  ;;
+  ;; There is only "deftrait-".  A trait can have multiple supertypes, but names
+  ;; in a trait must be unique - no overloading yet.
+  ;;
+  ;; A type is "traity" if it is i32, f64, String, anyref, anyfunc, or some
+  ;; trait type.
+  ;;
+  ;; Properties (get and get+set), trait method arguments, and trait method
+  ;; results must be of traity types.
+  ;;
+  ;; For (=> meth obj ...), if the static type of T has meth with matching arg
+  ;; count and arg types (possibly through automatic widening), invoke that and
+  ;; result in the method's return type.
+  ;;
+  ;; for (=> get prop obj), obj must have the property name (get or get+set) and
+  ;; the result is the type of the property.
+  ;;
+  ;; for (=> set prop obj val), obj must have the property name (get+set) and its
+  ;; type must be a supertype of the static type of val.
+  ;;
+  ;; Note meth and prop must be quoted: (=> 'getElementById (document) "x").
+  ;; This is only a matter of syntax, it reads more clearly, I think.
+  ;;
+  ;; Worklist:
+  ;;  - anyfunc type.  For now, do /not/ allow this to cast up/down to anyref.
+  ;;    It is its own thing, compatible only with itself.
+  ;;  - The name of an exported function [only] resolves to something that can
+  ;;    be passed to anyfunc parameter or stored in anyfunc property
+  ;;  - deftrait- with inheritance
+  ;;  - =get / =set / => operators on traits
+  
+  (deftrait- DOMWindow
+    (get document DOMDocument)
+    (method (addEventListener (s String) (handler anyfunc)))
+    (method (setInterval (handler anyfunc) (interval f64) -> f64))
+    (method (clearInterval (id f64))))
+  
+  (deftrait- DOMNode
+    (get+set textContent String)
+    (method (appendChild (child DOMNode) -> DOMNode)))
+  
+  (deftrait- DOMDocument (extends DOMNode)
+    (method (createElement (id String) -> DOMNode))
+    (method (getElementById (id String) -> DOMNode)))
+
+#|
+
+  Generally, until we have anyfunc support natively we will transform anyfuncs
+  into strings and just pass strings around.
+
+  The traits should expand roughly as follows:
+
+  (defun- (_trait_:DOMWindow/get/document (self anyref) -> anyref))
+  (defun- (_trait_:DOMWindow/addEventListener (s String) (handler anyfunc)))
+  (defun- (_trait_:DOMWindow/setInterval (handler anyfunc) (interval f64) -> f64))
+
+  with JS support
+
+  _trait_:{'DOMWindow/get/document': function (self) { return self.document },
+           'DOMWindow/addEventListener': function (self, s, handler) {
+             return self.addEventListener(s, instance.exports[handler])
+           },
+           'DOMWindow/setInterval': function (self, handler, interval) { return self.setInterval(handler, interval) }
+  
+  with functions passed as follows:
+
+  (=> (window) setInterval ontick 20.0)
+
+  becomes
+
+  (DOMWindow/setInterval (window) "ontick" 20.0)
+
+  It's an interesting puzzle to get instance.exports into the run-time support ...  Probably after
+  creating the instance we call a method to register the instance with the run-time support?
+  Note, want to allow for multiple instances of the module, which makes it complicated.
+
+|#
+  
+  (defun- (dom:window -> DOMWindow))
+
+  (defun (focus)
+    ;; what to do?
+    #t)
+
+  (defun (document)
+    (=> get 'document (window)))
+
   ;; Hacky debugging
   
   (defun- (debug:prs (x String)))
@@ -118,12 +207,18 @@
 
   (defvar running i32 #f)
   (defvar crashed i32 #f)
+  (defvar interval f64 0.0)
 
-  ;; No pointer-typed globals yet, so fake it by holding it on the host side.
+  ;; No pointer-typed globals yet, so fake them by holding them on the host side.
+
   ;; (defvar board Board (null Board))
   (defun- (hacks:stash-board (b Board) -> Board))
   (defun- (hacks:unstash-board -> Board))
-  
+
+  ;; (defvar row DOMNode (null DOMNode))
+  (defun- (hacks:stash-row (r DOMNode) -> DOMNode))
+  (defun- (hacks:unshash-row -> DOMNode))
+
   ;; We want these to be of type Point, but can't yet, for the same reason.
   (defvar head-y i32 0)
   (defvar head-x i32 0)
@@ -163,7 +258,8 @@
     (Food  renderFood)
     (Wall  renderWall))
 
-  (defun- (dom:setText (element anyref) (text String)))
+  (defun (setText (elt DOMNode) (s String))
+    (=> set 'textContent elt s))
 
   (defun (renderEmpty (self Tile))
     (setText (*element self) " "))
@@ -223,9 +319,14 @@
 	  (else
 	   (turn))))
 
-  (defun- (dom:setState (s String)))
-  (defun- (dom:startClock))
-  (defun- (dom:stopClock))
+  (defun (startClock)
+    (set! interval (=> 'setInterval (window) ontick 20.0)))
+
+  (defun (stopClock)
+    (=> 'clearInterval (window) interval))
+
+  (defun (setState (s String))
+    (=> set 'textContent (=> 'getElementById (document) "state") s))
 
   (defun (turn)
     (let ((next-x (case direction
@@ -264,8 +365,13 @@
 		     (set! tail-x (*younger_x old-tail)))))
 	    (set! ticks-remaining speed)))))
 
-  (defun- (dom:newRow))
-  (defun- (dom:newTile -> anyref))
+  (defun (newRow)
+    (stash-row (=> 'appendChild
+		   (=> 'getElementById (document) "grid")
+		   (=> 'createElement (document) "div"))))
+
+  (defun (newTile)
+    (=> 'appendChild (unstash-row) (=> 'createElement (document) "span")))
 
   (defun (create-display (b Board))
     (do ((y 0 (+ y 1)))
@@ -316,8 +422,6 @@
       (set! running #f)
       (set! crashed #f)))
 
-  (defun- (dom:focus))
-
   (defun+ (setup (height i32) (width i32))
     (initialize height width)
     (focus)
@@ -330,7 +434,6 @@
  {
    let board = null;
    let row   = null
-   let clock = null;
    let snake = null;
    let start = function(module) {
      snake = new WebAssembly.Instance(
@@ -339,16 +442,11 @@
        debug : { prs : console.log, pri: console.log },
        Math  : Math,
        hacks : { 'stash-board'   : function (b) { board = b; return board },
-                 'unstash-board' : function () { return board }
+                 'unstash-board' : function () { return board },
+                 'stash-row'   : function (r) { row = b; return row },
+                 'unstash-row' : function () { return row },
                },
-       dom   : { setText(element, text) { element.textContent = text },
-                 newRow() { row = document.getElementById('grid').appendChild(document.createElement('div')) },
-                 newTile() { return row.appendChild(document.createElement('span')) },
-                 startClock() { interval = setInterval(snake.ontick, 20) },
-                 stopClock() { clearInterval(interval) },
-                 setState(s) { document.getElementById('state').textContent = s },
-                 focus() { /* what to do? */ }
-               }
+       dom   : { window : function () { return window } }
      }).exports;
      snake.setup(24, 80)
    }

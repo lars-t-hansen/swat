@@ -4,7 +4,9 @@
 
 Swat is a mostly Scheme-syntaxed statically typed language that targets
 WebAssembly.  It has primitive numbers, strings, vectors, and single-inheritance
-classes with nominal type equivalence.
+classes with nominal type equivalence.  It has a simple traits system for
+describing host objects, and other simple facilities for interacting with a host
+system.
 
 Swat is a work in progress, and there are some hacks here.  "Vigor is better
 than rigor, unless you're already dead."
@@ -125,6 +127,10 @@ instance of the vector, never a copy of the vector:
 
 TODO.
 
+### Traits of host objects
+
+TODO.
+
 ## Using the Swat compiler and running Swat programs
 
 ### Prerequisites
@@ -160,6 +166,8 @@ Assume the input file is `prog.swat`.  The primary modes are:
   generates a single file, `prog.js`, which contains both JS and Wasm code.
 
 ### Running in the browser
+
+TODO.
 
 To run code in the browser, you would normally  ...
 
@@ -216,7 +224,7 @@ JS         ::= (js SchemeString)
     .wast.js output.
 
 Module     ::= (defmodule Id Toplevel ...)
-Toplevel   ::= Global | Func | Class | Virtual
+Toplevel   ::= Global | Func | Class | Trait | Virtual
 
     The module ID is ignored except when compiling to .js.wast.  Toplevel
     clauses can be present in any order and are reordered as required by the
@@ -257,8 +265,9 @@ Global-Init::= Number | Empty
 
 Type       ::= Primitive | RefType
 Primitive  ::= i32 | i64 | f32 | f64
-RefType    ::= ClassName | VectorType | string | anyref
+RefType    ::= ClassName | TraitName | VectorType | string | anyref | anyfunc
 ClassName  ::= Id
+TraitName  ::= Id
 VectorType ::= (Vector Type)
 
     These represent the types of variables.
@@ -271,6 +280,12 @@ VectorType ::= (Vector Type)
 
     Vectors are mutable nullable fixed-length sequences of values with O(1)
     access time.
+
+    anyfunc can hold a reference to an exported function.  Note, anyfunc is very
+    limited at this time.  It cannot be cast to or from anyref, and an anyfunc
+    cannot be invoked.  It has no default value and is not nullable, and so
+    cannot be used for global variables.  It is however useful for the traits
+    system.
 
     Automatic widening: When a value of static type A is used in a context that
     requires static type B, and A is not equal to B but A is widenable to B, then
@@ -362,6 +377,43 @@ Field      ::= (id Type)
     M.make.Box is a factory for an exported Box type; for a given box instance
     b, b.x would read its x field.  Class import is out of scope for swat0.
 
+Trait         ::= (deftrait- TraitName TraitExtends TraitElement ...)
+TraitExtends  ::= (extends TraitName ...) | Empty
+TraitElement  ::= TraitProperty | TraitMethod
+TraitProperty ::= (get Id TraityType) | (get+set Id TraityType)
+TraitMethod   ::= (method (Id TraitParam ... TraitResult))
+TraitParam    ::= (Id TraityType)
+TraitResult   ::= -> TraityType | Empty
+TraityType    ::= i32 | f64 | String | anyfunc | TraitName
+
+    Defines an interface to a host object.  This is a limited facility at this
+    time.
+
+    Programs use the => operator to invoke methods and access properties on
+    objects of trait type:
+
+      (=> (quote Id) receiver argument ...)
+      (=> get (quote Id) receiver)
+      (=> set (quote Id) receiver value)
+
+    Here Id names a method or a property which must be found on the static type
+    of receiver, which must be an object that has trait type.
+
+    Names in traits must be unique *after* flattening base traits.  (See below.)
+
+    Objects of trait type are nullable and can be tested with "null?".
+
+    We should be able to cast from a trait to a base trait, and from a trait to
+    anyref.  But downcasts should not work - user code imported from the host
+    can do that just as easily, should it be necessary; if we were to support it,
+    we would need some (typically imported) predicate to determine whether the
+    cast is safe.
+
+    TODO: These traits are simplistic in that the names in a trait must be
+    unique.  In a more complex reality, we might want to union traits together
+    and allow duplicates, and the notion of upcasting to a "base" trait would
+    involve explicitly selecting which base trait, if there's ambiguity.
+    
 Expr       ::= Syntax | Callish | Primitive
 Maybe-expr ::= Expr | Empty
 Syntax     ::= Begin | If | Cond | Set | Inc | Dec | Let | Let* | Loop | Break |
@@ -377,7 +429,10 @@ Primitive  ::= VarRef | Number | String-literal
 VarRef     ::= Id
 
    References a location introduced by defvar, defconst, a function parameter,
-   or let.
+   or let; or a function.
+
+   If the Id names a function, then the function must be exported, and the type
+   of the value is anyfunc.
 
 Begin      ::= (begin Expr Expr ...)
 
@@ -410,6 +465,9 @@ Lvalue     ::= Id | FieldRef
    If the Lvalue is a FieldRef then the pointer in the FieldRef designates an
    object, and the field designated by the name in the FieldRef in that object
    is updated.
+
+   If the Lvalue is an Id then it must designate a local binding or a global
+   defvar binding.
 
    TODO: inc! and dec! should take an optional operand for the delta, defaulting
    to 1.
